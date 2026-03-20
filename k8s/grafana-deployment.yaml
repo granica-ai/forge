@@ -1,0 +1,219 @@
+---
+# Grafana — Forge Job Overview Dashboard
+#
+# Deploys Grafana with:
+#   - Pre-provisioned Prometheus datasource (scrapes forge-api /metrics if available)
+#   - Pre-provisioned Forge Job Overview dashboard (from forge-grafana-dashboard.json)
+#   - Basic auth required (anonymous access disabled)
+#
+# Access: kubectl port-forward svc/grafana -n forge 3000:3000
+# RFC-0018, ADR-035: Grafana is the primary observability UI for beta.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: forge
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        url: http://prometheus:9090
+        access: proxy
+        isDefault: true
+        jsonData:
+          timeInterval: "15s"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: forge
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        folder: Forge
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-forge-dashboard
+  namespace: forge
+data:
+  forge-jobs.json: |
+    {
+      "title": "Forge — Job Overview",
+      "uid": "forge-jobs",
+      "schemaVersion": 36,
+      "refresh": "30s",
+      "time": {"from": "now-24h", "to": "now"},
+      "panels": [
+        {
+          "id": 1,
+          "title": "Running Jobs",
+          "type": "stat",
+          "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "count(kube_pod_labels{label_forge_granica_ai_managed='true', namespace='forge'}) or vector(0)", "legendFormat": "Running"}]
+        },
+        {
+          "id": 2,
+          "title": "Queue Depth",
+          "type": "stat",
+          "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "forge_queue_depth or vector(0)", "legendFormat": "Queued"}]
+        },
+        {
+          "id": 3,
+          "title": "Jobs Completed (24h)",
+          "type": "stat",
+          "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "count(kube_pod_labels{label_forge_granica_ai_state='completed', namespace='forge'}) or vector(0)", "legendFormat": "Completed"}]
+        },
+        {
+          "id": 4,
+          "title": "DRR % by Job (crunch-worker)",
+          "type": "timeseries",
+          "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
+          "targets": [{"expr": "drr_ratio{namespace='forge'}", "legendFormat": "{{job_name}}"}],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "red", "value": 0},
+                  {"color": "yellow", "value": 0.1},
+                  {"color": "green", "value": 0.25}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 5,
+          "title": "Bytes Processed (in/out) per second",
+          "type": "timeseries",
+          "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+          "targets": [
+            {"expr": "rate(bytes_read_total{namespace='forge'}[5m])", "legendFormat": "in {{job_name}}"},
+            {"expr": "rate(bytes_written_total{namespace='forge'}[5m])", "legendFormat": "out {{job_name}}"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "Bps"}}
+        },
+        {
+          "id": 6,
+          "title": "Executor Pod Count",
+          "type": "timeseries",
+          "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+          "targets": [{"expr": "count by (spark_app_name) (kube_pod_labels{label_spark_role='executor', namespace='forge'}) or vector(0)", "legendFormat": "{{spark_app_name}}"}]
+        }
+      ]
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: forge
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.2
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_AUTH_BASIC_ENABLED
+              value: "true"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin
+                  key: password
+                  optional: true
+            - name: GF_SECURITY_ALLOW_EMBEDDING
+              value: "false"
+            - name: GF_SERVER_ROOT_URL
+              value: "%(protocol)s://%(domain)s:%(http_port)s/grafana"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "false"
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: dashboards
+          configMap:
+            name: grafana-forge-dashboard
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      tolerations:
+        - key: kubernetes.io/arch
+          operator: Equal
+          value: arm64
+          effect: NoSchedule
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: forge
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

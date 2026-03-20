@@ -1,0 +1,46 @@
+# GitLab Runner Helm values for staging-ai-dev (763165855768)
+# Deployed in gitlab-ci namespace with IRSA for ECR + S3 access.
+#
+# Install:
+#   helm install gitlab-runner gitlab/gitlab-runner \
+#     -n gitlab-ci -f deploy/k8s/gitlab-runner-values.yaml
+#
+# Prerequisites:
+#   1. kubectl create namespace gitlab-ci
+#   2. Runner token stored in secret:
+#      kubectl create secret generic gitlab-runner-token -n gitlab-ci \
+#        --from-literal=runner-token=glrt-XXXXXXXX \
+#        --from-literal=runner-registration-token=""
+#   3. IRSA role: staging-ai-dev-gitlab-runner (created by post-deploy)
+
+gitlabUrl: https://gitlab.com
+
+# Runner token from K8s secret (created manually or by post-deploy script)
+runners:
+  secret: gitlab-runner-token
+
+  config: |
+    [[runners]]
+      [runners.kubernetes]
+        namespace = "gitlab-ci"
+        image = "763165855768.dkr.ecr.us-west-2.amazonaws.com/ai-factory-ci-base:1.0"
+        helper_image = "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:arm64-v18.9.0"
+        service_account = "gitlab-runner"
+        [runners.kubernetes.pod_labels]
+          "forge.granica.ai/ci" = "true"
+        [runners.kubernetes.node_selector]
+          "forge.granica.ai/pool" = "system"
+
+# Service account with IRSA annotation for ECR + S3 access
+serviceAccount:
+  create: true
+  name: gitlab-runner
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::763165855768:role/staging-ai-dev-gitlab-runner"
+
+# Runner pod itself on system nodes
+nodeSelector:
+  forge.granica.ai/pool: system
+
+# Concurrent jobs — match ci-builder pool limits (2 × 8 vCPU = 16 vCPU max)
+concurrent: 4

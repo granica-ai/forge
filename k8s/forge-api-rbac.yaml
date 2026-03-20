@@ -1,0 +1,117 @@
+---
+# forge-api RBAC
+#
+# forge-api needs:
+#   - Full lifecycle control over ForgeJob CRDs (its own state store)
+#   - Create/watch/delete SparkApplications (dispatching jobs to Spark Operator)
+#   - Read pod status (for driver pod tracking)
+#
+# forge-api runs as the forge-api ServiceAccount in the forge namespace.
+# IRSA annotation is added at deploy time (see deploy/terraform/).
+#
+# RFC-0028: Forge Control Plane
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: forge-api
+  namespace: ${FORGE_NAMESPACE}
+  annotations:
+    # Populated by Terraform at deploy time:
+    # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/forge-api
+    {}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: forge-api-role
+  namespace: ${FORGE_NAMESPACE}
+rules:
+  # ForgeJob CRDs — full lifecycle
+  - apiGroups: ["forge.granica.ai"]
+    resources: ["forgejobs", "forgejobs/status"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+
+  # ForgeMaintenancePolicy CRDs — read + patch status (RFC-0051)
+  - apiGroups: ["forge.granica.ai"]
+    resources: ["forgemaintenancepolicies", "forgemaintenancepolicies/status"]
+    verbs: ["get", "list", "watch", "patch", "create"]
+
+  # SparkApplications — create and manage (dispatched by forge-api)
+  - apiGroups: ["sparkoperator.k8s.io"]
+    resources: ["sparkapplications", "sparkapplications/status"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+
+  # Pods — read status for driver pod tracking
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+
+  # ConfigMaps — Spark Operator uses these for driver config
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+
+  # Services — Spark driver service
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: forge-api-role-binding
+  namespace: ${FORGE_NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: forge-api-role
+subjects:
+  - kind: ServiceAccount
+    name: forge-api
+    namespace: ${FORGE_NAMESPACE}
+
+---
+# spark-driver ServiceAccount in forge namespace
+# Used by Spark driver + executor pods submitted through forge-api.
+# IRSA annotation provides S3 access — added by Terraform at deploy time.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-driver
+  namespace: ${FORGE_NAMESPACE}
+  annotations:
+    # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/forge-spark-driver
+    {}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-driver-role
+  namespace: ${FORGE_NAMESPACE}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "watch", "delete", "deletecollection", "patch", "update"]
+  - apiGroups: ["sparkoperator.k8s.io"]
+    resources: ["sparkapplications", "sparkapplications/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-driver-role-binding
+  namespace: ${FORGE_NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spark-driver-role
+subjects:
+  - kind: ServiceAccount
+    name: spark-driver
+    namespace: ${FORGE_NAMESPACE}

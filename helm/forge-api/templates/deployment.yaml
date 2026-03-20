@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: forge-api
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: forge-api
+  template:
+    metadata:
+      labels:
+        app: forge-api
+    spec:
+      serviceAccountName: forge-api
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: forge-api
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 6066
+              name: rest
+            - containerPort: 8080
+              name: health
+          env:
+            {{- range $k, $v := .Values.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            # Single image tag drives crunch:$TAG-spark and crunch:$TAG (TKT-46).
+            - name: FORGE_IMAGE_TAG
+              value: {{ .Values.forgeImageTag | quote }}
+            # Expose cluster identity for GET /v1/system/info (TKT-J-013).
+            # AWS_ROLE_ARN and AWS_DEFAULT_REGION are injected by IRSA automatically.
+            # EKS_CLUSTER_NAME must be set via values.yaml clusterName field.
+            {{- if .Values.clusterName }}
+            - name: EKS_CLUSTER_NAME
+              value: {{ .Values.clusterName | quote }}
+            {{- end }}
+          {{- if .Values.apiKeys.secretName }}
+          # TF-004: mount API key secret so forge-api can authenticate requests
+          volumeMounts:
+            - name: forge-api-keys
+              mountPath: /etc/forge-keys
+              readOnly: true
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 6066
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 6066
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- if .Values.apiKeys.secretName }}
+      volumes:
+        - name: forge-api-keys
+          secret:
+            secretName: {{ .Values.apiKeys.secretName }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}

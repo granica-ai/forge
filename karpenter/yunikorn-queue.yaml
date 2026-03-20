@@ -1,0 +1,46 @@
+---
+# YuniKorn Queue Configuration for Forge
+#
+# YuniKorn provides gang scheduling: all N executor pods are allocated atomically
+# before any executor starts. This prevents the partial-allocation deadlock where
+# a Spark driver holds a slot but executors cannot start (no nodes available).
+#
+# Install YuniKorn via Helm before applying this ConfigMap:
+#   helm repo add yunikorn https://apache.github.io/yunikorn-release
+#   helm install yunikorn yunikorn/yunikorn --namespace yunikorn --create-namespace
+#
+# Then submit SparkApplications with:
+#   sparkConf:
+#     spark.kubernetes.scheduler.name: yunikorn
+#     spark.yunikorn.queue: root.forge
+#
+# RFC-0028: Forge Control Plane
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yunikorn-configs
+  namespace: yunikorn
+data:
+  queues.yaml: |
+    partitions:
+      - name: default
+        queues:
+          - name: root
+            submitacl: "*"
+            queues:
+              - name: forge
+                submitacl: "*"
+                maxApplications: 20
+                resources:
+                  max:
+                    memory: 1Ti
+                    vcore: 500
+                  guaranteed:
+                    memory: 64Gi
+                    vcore: 16
+                properties:
+                  # Gang scheduling: all members of a gang must be allocated together.
+                  # Spark sets this via spark.kubernetes.scheduler.name=yunikorn and
+                  # the task group annotations on the driver/executor pods.
+                  application.sort.policy: fifo

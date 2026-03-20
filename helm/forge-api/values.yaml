@@ -1,0 +1,70 @@
+replicaCount: 1
+
+# clusterName is surfaced via GET /v1/system/info so FDEs can identify the deployment.
+# Set this to the EKS cluster name when deploying (e.g. customer-ai-forge, project-n-bigabid-c36b).
+clusterName: ""
+
+image:
+  repository: 763165855768.dkr.ecr.us-west-2.amazonaws.com/forge-api
+  tag: v0.6.5-beta
+  pullPolicy: Always
+
+# Single image tag drives all Forge images (TKT-46 fix).
+# forge-api derives crunch:$TAG-spark and crunch:$TAG from FORGE_IMAGE_TAG.
+forgeImageTag: v0.6.5-beta
+
+env:
+  FORGE_NAMESPACE: forge
+  FORGE_MAX_CONCURRENT_JOBS: "5"
+  FORGE_MAX_QUEUE_DEPTH: "100"
+  FORGE_DEFAULT_EXECUTORS: "1"
+  FORGE_AUTH_REQUIRED: "true"
+  FORGE_TRACING_ENABLED: "true"
+  FORGE_PROTECTED_PREFIXES: "s3://n-staging-testdata-us-west-2/forge-qa/raw"
+  FORGE_TRINO_BASE_URL: "http://trino.trino.svc.cluster.local:8080"
+  FORGE_TRINO_LOG_BUCKET: "forge-trino-logs"
+  # TKT-99: History bucket for /v1/jobs/history API.
+  # Override per-deployment (e.g. customer-ai-forge-data for the customer-ai cluster).
+  FORGE_HISTORY_BUCKET: ""
+  # S3 URIs for metrics and system tables. Override per-deployment.
+  FORGE_METRICS_BASE_URI: ""
+  FORGE_SYSTEM_TABLE_URI: ""
+  # Set FORGE_API_KEYS_FILE when apiKeys.secretName is configured
+  FORGE_API_KEYS_FILE: /etc/forge-keys/keys
+
+# TF-004: API key secret mount. Set secretName to enable auth.
+# The secret must have a key named "keys" containing one API key per line.
+apiKeys:
+  secretName: forge-api-keys
+
+service:
+  type: ClusterIP
+  port: 6066
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceAccount:
+  # Set to the IRSA role ARN for this cluster (output from Terraform).
+  annotations:
+    eks.amazonaws.com/role-arn: ""
+
+# Spark driver IRSA role for the spark-driver SA.
+sparkDriver:
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: ""
+
+nodeSelector:
+  kubernetes.io/arch: arm64
+
+tolerations:
+  - key: kubernetes.io/arch
+    operator: Equal
+    value: arm64
+    effect: NoSchedule

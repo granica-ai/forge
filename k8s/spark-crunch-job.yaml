@@ -1,0 +1,77 @@
+# Validated SparkApplication template for Crunch++ (Delta Lake)
+#
+# Usage:
+#   export TABLE_PATH="s3a://bucket/path/to/delta_table"
+#   envsubst < spark-crunch-job.yaml | kubectl apply -f -
+#
+# Tested on: staging-ai-dev (EKS, Graviton ARM64)
+# Validated: 2026-02-19 — row integrity preserved, Delta commit verified
+#
+# KNOWN ISSUE: crunch-engine merge produces ~1000-row files by default.
+# This causes negative DRR on datasets >100 MB due to per-file Parquet overhead.
+# Fix required: target file size config in crunch-engine compaction module.
+# Tracked in ai-factory KG: crunch_merge_fragmentation_bug
+
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: ${JOB_NAME:-crunch-delta-job}
+  namespace: ${NAMESPACE:-crunch}
+spec:
+  type: Scala
+  mode: cluster
+  image: ${SPARK_IMAGE:-809541265033.dkr.ecr.us-west-2.amazonaws.com/crunch:v0.1.1-spark}
+  imagePullPolicy: Always
+  mainClass: com.granica.forge.ForgeOptimizer
+  mainApplicationFile: "local:///opt/spark/jars/crunch-spark-assembly-0.1.0.jar"
+  arguments:
+    - "--table-path"
+    - "${TABLE_PATH}"
+    - "--codec"
+    - "${CODEC:-zstd}"
+    - "--level"
+    - "${LEVEL:-3}"
+  sparkVersion: "3.5.8"
+  restartPolicy:
+    type: Never
+  hadoopConf:
+    fs.s3a.aws.credentials.provider: "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+    fs.s3a.endpoint: "s3.${AWS_REGION:-us-west-2}.amazonaws.com"
+    fs.s3a.impl: "org.apache.hadoop.fs.s3a.S3AFileSystem"
+  sparkConf:
+    spark.kubernetes.namespace: ${NAMESPACE:-crunch}
+    spark.kubernetes.executor.deleteOnTermination: "true"
+    spark.sql.extensions: "io.delta.sql.DeltaSparkSessionExtension"
+    spark.sql.catalog.spark_catalog: "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+    spark.jars: "local:///opt/spark/jars/crunch-spark-assembly-0.1.0.jar"
+    spark.executor.extraClassPath: "/opt/spark/jars/crunch-spark-assembly-0.1.0.jar"
+  driver:
+    cores: 1
+    memory: "${DRIVER_MEMORY:-2g}"
+    serviceAccount: ${SERVICE_ACCOUNT:-spark-driver}
+  executor:
+    cores: 1
+    instances: ${EXECUTOR_INSTANCES:-2}
+    memory: "${EXECUTOR_MEMORY:-2g}"
+    serviceAccount: ${SERVICE_ACCOUNT:-spark-driver}
+    sidecars:
+      - name: crunch-worker
+        image: ${CRUNCH_IMAGE:-809541265033.dkr.ecr.us-west-2.amazonaws.com/crunch:v0.1.2}
+        imagePullPolicy: Always
+        command: ["crunch-worker", "--listen", "0.0.0.0:50051"]
+        ports:
+          - containerPort: 50051
+            name: grpc
+            protocol: TCP
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "3Gi"
+        readinessProbe:
+          tcpSocket:
+            port: 50051
+          initialDelaySeconds: 2
+          periodSeconds: 5

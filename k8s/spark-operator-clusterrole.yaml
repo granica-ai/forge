@@ -1,0 +1,49 @@
+# TKT-94/95: ClusterRole for spark-operator to manage resources across namespaces.
+#
+# The spark-operator Helm chart (v2.4.0) only creates namespace-scoped RBAC in its
+# install namespace (crunch). When spark.jobNamespaces is set to "" (all namespaces)
+# or a specific foreign namespace like "forge", the controller SA needs a ClusterRole
+# to list/create pods, configmaps, and SparkApplications in those namespaces.
+#
+# Apply after Helm install:
+#   kubectl apply -f spark-operator-clusterrole.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spark-operator-cross-namespace
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: spark-operator
+rules:
+  - apiGroups: ["sparkoperator.k8s.io"]
+    resources:
+      - sparkapplications
+      - sparkapplications/status
+      - sparkapplications/finalizers
+      - scheduledsparkapplications
+      - scheduledsparkapplications/status
+      - scheduledsparkapplications/finalizers
+      - sparkconnects
+      - sparkconnects/status
+      - sparkconnects/finalizers
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "events"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spark-operator-cross-namespace
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: spark-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spark-operator-cross-namespace
+subjects:
+  - kind: ServiceAccount
+    name: spark-operator-controller
+    namespace: crunch

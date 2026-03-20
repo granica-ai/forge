@@ -1,0 +1,124 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: forgemaintenancepolicies.forge.granica.ai
+spec:
+  group: forge.granica.ai
+  scope: Namespaced
+  names:
+    plural: forgemaintenancepolicies
+    singular: forgemaintenancepolicy
+    kind: ForgeMaintenancePolicy
+    shortNames:
+      - fmp
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Schedule
+          type: string
+          jsonPath: .spec.schedule
+        - name: Target
+          type: string
+          jsonPath: .spec.target.s3Prefix
+        - name: Enabled
+          type: boolean
+          jsonPath: .spec.enabled
+        - name: Last-Run
+          type: string
+          jsonPath: .status.lastRunAt
+        - name: Last-State
+          type: string
+          jsonPath: .status.lastRunState
+        - name: Next-Run
+          type: string
+          jsonPath: .status.nextRunAt
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [target, schedule]
+              properties:
+                target:
+                  type: object
+                  required: [type, s3Prefix, format]
+                  properties:
+                    type:
+                      type: string
+                      enum: [path]  # v1: path-based only; v2 adds catalog
+                    s3Prefix:
+                      type: string
+                      description: "S3 URI prefix (s3://bucket/prefix/)"
+                    format:
+                      type: string
+                      enum: [delta, parquet]
+                      description: "Table format. parquet = compression only, no maintenance ops."
+                schedule:
+                  type: string
+                  description: "Cron expression (UTC). E.g. '0 3 * * *' = 3am daily."
+                enabled:
+                  type: boolean
+                  default: true
+                priority:
+                  type: integer
+                  default: 50
+                  description: "Job priority. Lower than on-demand jobs (default 100)."
+                compact:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    targetFileSizeBytes:
+                      type: integer
+                      default: 134217728  # 128 MiB
+                    strategy:
+                      type: string
+                      enum: [BINPACK]  # v2 will add ZORDER via Optimus
+                      default: BINPACK
+                vacuum:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    retentionDays:
+                      type: integer
+                      minimum: 7       # 7-day floor enforced at admission (D4, RFC-0051)
+                      default: 7
+                spark:
+                  type: object
+                  properties:
+                    driverMemory:
+                      type: string
+                      default: "4g"
+                    executorMemory:
+                      type: string
+                      default: "8g"
+                    executorCount:
+                      type: integer
+                      default: 2
+            status:
+              type: object
+              properties:
+                lastRunAt:
+                  type: string
+                  format: date-time
+                nextRunAt:
+                  type: string
+                  format: date-time
+                lastRunState:
+                  type: string
+                  enum: [succeeded, failed, running, never]
+                lastJobID:
+                  type: string
+                totalRuns:
+                  type: integer
+                consecutiveFailures:
+                  type: integer

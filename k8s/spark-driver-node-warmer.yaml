@@ -1,0 +1,77 @@
+---
+# spark-driver-node-warmer — keeps one On-Demand node pre-provisioned for Spark drivers.
+#
+# Problem: Karpenter spark-driver NodePool has consolidateAfter=2m, meaning nodes are
+# terminated quickly after jobs finish. When the next job submits, Karpenter must
+# provision a new m8g.xlarge (On-Demand, ~60s). The driver pod stays Pending during
+# this window, then executors need their own Spot nodes (~60s). Total startup latency
+# is 2-3 min before the Spark job actually starts, causing G-005 to timeout at 600s.
+#
+# Fix: Keep a lightweight placeholder pod scheduled on the spark-driver NodePool.
+# Karpenter won't consolidate a node while any pod is scheduled on it.
+# Resource requests are minimal (50m CPU, 128Mi memory) — the real Spark driver (2g mem)
+# will still fit since it preempts or shares the m8g.xlarge (4 vCPU, 16 GB).
+#
+# Applied by: harness1/scripts/deploy.sh (part of deploy stage setup)
+# See: TKT-43, deploy/karpenter/nodepools.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-driver-node-warmer
+  namespace: forge-dev
+  labels:
+    app: spark-driver-node-warmer
+    forge.granica.ai/purpose: node-warmer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-driver-node-warmer
+  template:
+    metadata:
+      labels:
+        app: spark-driver-node-warmer
+        forge.granica.ai/purpose: node-warmer
+    spec:
+      # TKT-43: tolerate both taint conventions:
+      #   forge.granica.ai/spark-driver — Karpenter NodePool (target state)
+      #   spark=true                    — EKS managed nodegroup (existing Terraform clusters)
+      tolerations:
+        - key: forge.granica.ai/spark-driver
+          operator: Exists
+          effect: NoSchedule
+        - key: spark
+          operator: Exists
+          effect: NoSchedule
+      # Prefer the spark-driver pool over system nodes (works for both Karpenter and CA)
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: forge.granica.ai/pool
+                    operator: In
+                    values: [spark-driver]
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: node.kubernetes.io/instance-type
+                    operator: In
+                    values: [m8g.xlarge, m8g.2xlarge]
+      containers:
+        - name: warmer
+          # Use the factory CI base image (always in ECR, minimal pull time)
+          image: 809541265033.dkr.ecr.us-west-2.amazonaws.com/ai-factory-ci-base:1.0
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+      # Don't restart if evicted — Karpenter will manage the lifecycle
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 5

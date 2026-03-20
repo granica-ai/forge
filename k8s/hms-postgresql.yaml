@@ -1,0 +1,94 @@
+# PostgreSQL backend for HMS (Hive Metastore Service)
+#
+# Single-replica PostgreSQL 15 for the HMS schema.
+# Data is NOT persisted across pod restarts in staging (emptyDir volume).
+# For production: replace emptyDir with a PersistentVolumeClaim.
+#
+# Deploy before hms-deployment.yaml:
+#   kubectl apply -f hms-postgresql.yaml
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hms-pg-credentials
+  namespace: forge
+type: Opaque
+stringData:
+  POSTGRES_USER: hive
+  POSTGRES_PASSWORD: hive
+  POSTGRES_DB: metastore
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hms-pg
+  namespace: forge
+  labels:
+    app: hms-pg
+    component: catalog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hms-pg
+  template:
+    metadata:
+      labels:
+        app: hms-pg
+        component: catalog
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: hms-pg-credentials
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "hive", "-d", "metastore"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "hive", "-d", "metastore"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        # emptyDir: schema is re-initialized by hms-schema-init Job on each deploy.
+        # Replace with PVC for persistent staging or production use.
+        - name: pgdata
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hms-pg
+  namespace: forge
+  labels:
+    app: hms-pg
+    component: catalog
+spec:
+  selector:
+    app: hms-pg
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+      protocol: TCP
+  type: ClusterIP

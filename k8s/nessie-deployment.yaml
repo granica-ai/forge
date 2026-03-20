@@ -1,0 +1,109 @@
+# Nessie REST Catalog — Iceberg catalog for Forge (ADR-018)
+#
+# Provides: http://nessie.forge.svc.cluster.local:19120/api/v1
+#
+# Why Nessie instead of HMS HiveCatalog for Iceberg (ADR-018):
+#   HMS (ilum/hive:3.1.3) calls getFileStatus on S3 during Iceberg table creation
+#   (HiveTableOperations.commitNewTable). HMS lacks aws-java-sdk-sts for IRSA → 403.
+#   Nessie stores Iceberg metadata internally; never touches S3 during registration.
+#   Spark's Iceberg catalog client accesses S3 directly via its own IRSA config.
+#
+# Image: projectnessie/nessie:0.76.6 (multi-arch: amd64 + arm64 / Graviton)
+# Backend: RocksDB (emptyDir) — ephemeral; re-registers tables after pod restart
+# API: REST v1 on port 19120
+#
+# Spark config to use this catalog:
+#   spark.sql.catalog.nessie=org.apache.iceberg.spark.SparkCatalog
+#   spark.sql.catalog.nessie.catalog-impl=org.apache.iceberg.nessie.NessieCatalog
+#   spark.sql.catalog.nessie.uri=http://nessie.forge.svc.cluster.local:19120/api/v1
+#   spark.sql.catalog.nessie.ref=main
+#   spark.sql.catalog.nessie.warehouse=s3a://n-staging-testdata-us-west-2/forge-qa/iceberg-warehouse/
+#
+# Deploy:
+#   kubectl apply -f nessie-deployment.yaml
+#
+# Validate:
+#   kubectl rollout status deployment/nessie -n forge
+#   curl http://$(kubectl get svc nessie -n forge -o jsonpath='{.spec.clusterIP}'):19120/api/v1/config
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nessie
+  namespace: forge
+  labels:
+    app: nessie
+    component: catalog
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nessie
+  template:
+    metadata:
+      labels:
+        app: nessie
+        component: catalog
+    spec:
+      containers:
+        - name: nessie
+          image: projectnessie/nessie:0.76.6
+          ports:
+            - containerPort: 19120
+              name: rest
+              protocol: TCP
+          env:
+            # RocksDB backend — persistent across container restarts within the same pod lifecycle
+            - name: NESSIE_VERSION_STORE_TYPE
+              value: ROCKSDB
+            - name: NESSIE_VERSION_STORE_PERSIST_ROCKS_DB_DATABASE_PATH
+              value: /var/lib/nessie/rocks
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: nessie-data
+              mountPath: /var/lib/nessie
+          readinessProbe:
+            httpGet:
+              path: /api/v1/config
+              port: 19120
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/v1/config
+              port: 19120
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: nessie-data
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nessie
+  namespace: forge
+  labels:
+    app: nessie
+    component: catalog
+spec:
+  selector:
+    app: nessie
+  ports:
+    - port: 19120
+      targetPort: 19120
+      name: rest
+      protocol: TCP
+  type: ClusterIP

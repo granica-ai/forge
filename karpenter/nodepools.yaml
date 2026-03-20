@@ -1,0 +1,206 @@
+---
+# STATUS: NOT DEPLOYED — target architecture for Karpenter migration
+#
+# The staging-ai-dev cluster currently uses EKS managed node groups
+# (system, spark-driver, spark-executor, evaluator) defined in
+# deploy/terraform/forge-aws/main.tf.
+#
+# This file defines the target state: 2 Karpenter NodePools that replace
+# the 3 workload managed node groups. The system pool stays as a managed
+# node group (Karpenter can't manage the nodes it runs on).
+#
+# Design: capacity-based pools, not workload-specific pools.
+# See tech-context/kubernetes/patterns/node-pool-consolidation.md
+#
+# Before (4 managed node groups) → After (1 MNG + 2 Karpenter):
+#   system (MNG)            → system (MNG, unchanged)
+#   spark-driver (MNG)      → granica-on-demand (Karpenter)
+#   evaluator (MNG)         → granica-on-demand (Karpenter)
+#   spark-executor (MNG)    → granica-on-spot (Karpenter)
+#
+# Workload scheduling (unchanged — pod-level config, not pool boundaries):
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand  → granica-on-demand
+#     karpenter.sh/capacity-type: spot       → granica-on-spot
+#     (no selector)                          → system MNG (default)
+#
+# Blockers before deploying:
+#   1. Install Karpenter controller (v1.1+) on the cluster
+#   2. Create EC2NodeClass IAM instance profile via Terraform
+#   3. Verify Karpenter controller IAM policies (5 policies in v1.9+)
+#   4. Test in staging before customer clusters
+#
+# API: karpenter.sh/v1 (requires Karpenter >= 1.0)
+
+---
+# On-demand pool — drivers, coordinators, evaluators, CI builders.
+# Anything that must not be interrupted runs here.
+# Multi-family instance selection: Karpenter picks cheapest available from
+# m, r, c families gen 7+ (m8g, c8g, r8g, m7g, c7g, r7g).
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: granica-on-demand
+spec:
+  weight: 50
+  template:
+    metadata:
+      labels:
+        forge.granica.ai/capacity: on-demand
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["arm64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["m", "r", "c"]
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["6"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["xlarge", "2xlarge", "4xlarge"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: forge-default
+      expireAfter: 720h  # 30 days — forces AMI rotation for security patches
+  limits:
+    cpu: "100"
+    memory: 400Gi
+  disruption:
+    # WhenEmpty: don't consolidate while any pod is still running on the node.
+    # Prevents drivers from being evicted mid-job due to underutilisation.
+    consolidationPolicy: WhenEmpty
+    # 10 min warm window — keeps driver nodes alive between consecutive job batches
+    # so the next submission doesn't pay cold-start time.
+    consolidateAfter: 600s
+
+---
+# Spot pool — executors, workers, batch compute.
+# Multi-family instance selection across m/r/c gen 7+ for Spot diversity.
+# With 3 families × 5 sizes × 2+ generations = 30+ instance types in the
+# candidate set — critical for avoiding Spot capacity failures.
+# ARM64 primary. If ARM Spot is region-wide unavailable, add a separate
+# lower-weight x86 fallback pool (uncomment below).
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: granica-on-spot
+spec:
+  weight: 50
+  template:
+    metadata:
+      labels:
+        forge.granica.ai/capacity: spot
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["arm64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot"]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["m", "r", "c"]
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["6"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["2xlarge", "4xlarge", "8xlarge", "12xlarge", "16xlarge"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: forge-default
+      expireAfter: 168h  # 7 days
+  limits:
+    cpu: "500"
+    memory: 2000Gi
+  disruption:
+    consolidationPolicy: WhenEmpty
+    # 5 min warm window — keeps executor nodes alive after a job batch completes
+    # so consecutive regression runs (or resubmits) don't pay cold-start again.
+    consolidateAfter: 300s
+    budgets:
+      - nodes: "20%"  # don't disrupt more than 20% of nodes at once
+
+# ---
+# # x86 Spot fallback — uncomment if ARM Spot is unavailable region-wide.
+# # Lower weight (10 vs 50) means Karpenter prefers ARM Spot when available.
+# apiVersion: karpenter.sh/v1
+# kind: NodePool
+# metadata:
+#   name: granica-on-spot-x86
+# spec:
+#   weight: 10
+#   template:
+#     metadata:
+#       labels:
+#         forge.granica.ai/capacity: spot
+#     spec:
+#       requirements:
+#         - key: kubernetes.io/arch
+#           operator: In
+#           values: ["amd64"]
+#         - key: karpenter.sh/capacity-type
+#           operator: In
+#           values: ["spot"]
+#         - key: karpenter.k8s.aws/instance-category
+#           operator: In
+#           values: ["m", "r", "c"]
+#         - key: karpenter.k8s.aws/instance-generation
+#           operator: Gt
+#           values: ["6"]
+#         - key: karpenter.k8s.aws/instance-size
+#           operator: In
+#           values: ["2xlarge", "4xlarge", "8xlarge"]
+#       nodeClassRef:
+#         group: karpenter.k8s.aws
+#         kind: EC2NodeClass
+#         name: forge-default
+#       expireAfter: 168h
+#   limits:
+#     cpu: "100"
+#     memory: 400Gi
+#   disruption:
+#     consolidationPolicy: WhenEmpty
+#     consolidateAfter: 60s
+#     budgets:
+#       - nodes: "20%"
+
+---
+# EC2NodeClass — shared by all NodePools.
+# subnetSelectorTerms and securityGroupSelectorTerms discover resources via the
+# karpenter.sh/discovery tag applied by Terraform (deploy/terraform/forge-aws/).
+# amiFamily: AL2023 tells Karpenter to auto-discover the latest EKS-optimized
+# AL2023 AMI (no amiSelectorTerms needed).
+# instanceProfile is the Terraform-managed Karpenter node instance profile.
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: forge-default
+spec:
+  # AL2023 latest via alias — Karpenter auto-discovers the newest EKS-optimised AMI.
+  amiSelectorTerms:
+    - alias: al2023@latest
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ${CLUSTER_NAME}
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ${CLUSTER_NAME}
+  instanceProfile: ${KARPENTER_NODE_INSTANCE_PROFILE}
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        encrypted: true

@@ -1,0 +1,154 @@
+---
+# ADOT Collector — AWS Distro for OpenTelemetry (RFC-0066)
+#
+# Receives OTLP/gRPC traces from the Forge Connector (ForgeTracing.scala) and
+# exports them to AWS X-Ray using SigV4 signing via IRSA.
+#
+# Why a collector instead of direct OTLP to X-Ray:
+#   The X-Ray OTLP endpoint (https://xray.{region}.amazonaws.com/v1/traces)
+#   requires AWS SigV4 authentication. The standard OTEL Java SDK does not
+#   implement SigV4 — it returns HTTP 403. The ADOT Collector handles signing
+#   transparently via the collector's IAM role (IRSA on EKS).
+#
+# Service endpoint (matches ForgeTracing.scala DefaultOtelEndpoint):
+#   olly-otel-collector.default.svc.cluster.local:4317 (gRPC)
+#
+# IAM: Uses the spark-driver IRSA role (system:serviceaccount:default:spark-driver)
+#   which has xray:PutTraceSegments permissions. The IRSA trust policy allows any
+#   SA named "spark-driver" in any namespace.
+#
+# Image: official ADOT Collector — maintained by AWS, includes awsxray exporter.
+#   Pinned to v0.42.0 for reproducibility; update via FORGE_ADOT_VERSION env var.
+#
+# Deployment model: single pod, Deployment (not DaemonSet).
+# One collector per Forge namespace — all Spark driver pods in the namespace
+# send OTLP to this collector via the in-cluster DNS name.
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adot-collector-config
+  namespace: default
+  labels:
+    app: olly-otel-collector
+    forge.granica.ai/managed: "true"
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 50
+
+    exporters:
+      awsxray:
+        region: ${REGION}
+        no_verify_ssl: false
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [awsxray]
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-driver
+  namespace: default
+  annotations:
+    # Reuse the spark-driver IRSA role — trust policy allows system:serviceaccount:*:spark-driver
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${CLUSTER_NAME}-spark-driver-irsa"
+  labels:
+    app: olly-otel-collector
+    forge.granica.ai/managed: "true"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: olly-otel-collector
+  namespace: default
+  labels:
+    app: olly-otel-collector
+    forge.granica.ai/managed: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: olly-otel-collector
+  template:
+    metadata:
+      labels:
+        app: olly-otel-collector
+    spec:
+      serviceAccountName: spark-driver
+      containers:
+        - name: adot-collector
+          image: public.ecr.aws/aws-observability/aws-otel-collector:v0.42.0
+          args: ["--config=/conf/config.yaml"]
+          env:
+            - name: REGION
+              value: "${REGION}"
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: adot-collector-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: olly-otel-collector
+  namespace: default
+  labels:
+    app: olly-otel-collector
+    forge.granica.ai/managed: "true"
+spec:
+  selector:
+    app: olly-otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+  type: ClusterIP

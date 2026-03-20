@@ -1,0 +1,530 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: forgeclusters.forge.granica.ai
+spec:
+  group: forge.granica.ai
+  names:
+    kind: ForgeCluster
+    listKind: ForgeClusterList
+    plural: forgeclusters
+    singular: forgecluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.version
+      name: Version
+      type: string
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ForgeCluster defines a Forge platform deployment on a K8s cluster.
+          One ForgeCluster per cluster. The operator reconciles this into
+          namespaces, CRDs, Helm releases, RBAC, and secrets.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of ForgeCluster.
+            properties:
+              dataBucket:
+                description: DataBucket is the S3/GCS bucket for Forge data (customer
+                  data, metrics).
+                type: string
+              ecrRegistry:
+                description: |-
+                  ECRRegistry is the container registry for Forge images.
+                  Example: "763165855768.dkr.ecr.us-west-2.amazonaws.com"
+                type: string
+              existingCluster:
+                description: ExistingCluster settings for deploying into customer-provided
+                  K8s.
+                properties:
+                  createClusterRoles:
+                    default: true
+                    description: |-
+                      CreateClusterRoles controls whether the operator creates ClusterRoles.
+                      Set to false when deploying into a customer cluster with restricted RBAC.
+                    type: boolean
+                  createStorageClasses:
+                    default: true
+                    description: CreateStorageClasses controls whether the operator
+                      creates StorageClasses.
+                    type: boolean
+                  namespace:
+                    description: |-
+                      Namespace to use if the customer provides an existing namespace.
+                      If set, operator will not create/delete namespaces.
+                    type: string
+                type: object
+              forgeApi:
+                description: ForgeAPI configuration overrides.
+                properties:
+                  authRequired:
+                    default: true
+                    type: boolean
+                  defaultExecutors:
+                    default: 1
+                    format: int32
+                    type: integer
+                  maxConcurrentJobs:
+                    default: 5
+                    format: int32
+                    type: integer
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: 'NodeSelector for forge-api pods. Default: arm64.'
+                    type: object
+                  replicas:
+                    default: 1
+                    format: int32
+                    type: integer
+                  resources:
+                    description: Resources for the forge-api container.
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  serviceType:
+                    default: LoadBalancer
+                    description: |-
+                      ServiceType controls the Kubernetes Service type for the forge-api Service.
+                      Defaults to LoadBalancer for external access.
+                      Use ClusterIP for internal-only deployments (e.g. behind an Ingress).
+                      TKT-105: must be set here (not as a manual kubectl patch) so upgrades do not revert it.
+                    enum:
+                    - ClusterIP
+                    - NodePort
+                    - LoadBalancer
+                    type: string
+                  tolerations:
+                    description: Tolerations for forge-api pods.
+                    items:
+                      description: |-
+                        The pod this Toleration is attached to tolerates any taint that matches
+                        the triple <key,value,effect> using the matching operator <operator>.
+                      properties:
+                        effect:
+                          description: |-
+                            Effect indicates the taint effect to match. Empty means match all taint effects.
+                            When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                          type: string
+                        key:
+                          description: |-
+                            Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                            If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                          type: string
+                        operator:
+                          description: |-
+                            Operator represents a key's relationship to the value.
+                            Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                            Exists is equivalent to wildcard for value, so that a pod can
+                            tolerate all taints of a particular category.
+                            Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                          type: string
+                        tolerationSeconds:
+                          description: |-
+                            TolerationSeconds represents the period of time the toleration (which must be
+                            of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                            it is not set, which means tolerate the taint forever (do not evict). Zero and
+                            negative values will be treated as 0 (evict immediately) by the system.
+                          format: int64
+                          type: integer
+                        value:
+                          description: |-
+                            Value is the taint value the toleration matches to.
+                            If the operator is Exists, the value should be empty, otherwise just a regular string.
+                          type: string
+                      type: object
+                    type: array
+                type: object
+              irsa:
+                description: IRSA role ARNs for service accounts.
+                properties:
+                  forgeApiRoleArn:
+                    description: ForgeAPI service account IAM role ARN.
+                    type: string
+                  sparkDriverRoleArn:
+                    description: Spark driver service account IAM role ARN.
+                    type: string
+                required:
+                - forgeApiRoleArn
+                - sparkDriverRoleArn
+                type: object
+              mode:
+                default: poc
+                description: Mode is the deployment governance profile from RFC-0102.
+                enum:
+                - demo
+                - poc
+                - fde-managed
+                - self-hosted
+                - dark-site
+                type: string
+              namespaces:
+                description: Namespaces for Forge components.
+                properties:
+                  crunch:
+                    default: crunch
+                    type: string
+                  forge:
+                    default: forge
+                    type: string
+                type: object
+              observability:
+                description: Observability configuration.
+                properties:
+                  logShipping:
+                    description: LogShipping configures log shipping to Granica (Phase
+                      3).
+                    properties:
+                      destinationBucket:
+                        description: |-
+                          DestinationBucket is the Granica-side bucket for shipped data.
+                          Example: "n-logs-bigabid-us-east-1"
+                        type: string
+                      enabled:
+                        description: Enabled turns on shipping to the destination.
+                        type: boolean
+                    required:
+                    - enabled
+                    type: object
+                  metricsShipping:
+                    description: MetricsShipping configures metrics shipping to Granica
+                      (Phase 3).
+                    properties:
+                      destinationBucket:
+                        description: |-
+                          DestinationBucket is the Granica-side bucket for shipped data.
+                          Example: "n-logs-bigabid-us-east-1"
+                        type: string
+                      enabled:
+                        description: Enabled turns on shipping to the destination.
+                        type: boolean
+                    required:
+                    - enabled
+                    type: object
+                  tracingEnabled:
+                    default: false
+                    description: TracingEnabled enables X-Ray/OTEL tracing.
+                    type: boolean
+                type: object
+              protectedPrefixes:
+                description: ProtectedPrefixes are S3 prefixes that Forge must never
+                  write to.
+                items:
+                  type: string
+                type: array
+              sparkOperator:
+                description: SparkOperator configuration overrides.
+                properties:
+                  chartVersion:
+                    default: 2.4.0
+                    type: string
+                  controllerWorkers:
+                    default: 3
+                    format: int32
+                    type: integer
+                type: object
+              systemBucket:
+                description: |-
+                  SystemBucket is the dedicated bucket for Iceberg system tables and logs.
+                  Separate from DataBucket for IAM isolation and lifecycle independence.
+                properties:
+                  name:
+                    description: |-
+                      Name of the system bucket.
+                      Example: "forge-system-bigabid-us-east-1"
+                    type: string
+                  provider:
+                    default: s3
+                    description: Provider is the storage backend.
+                    enum:
+                    - s3
+                    - gcs
+                    type: string
+                  region:
+                    description: Region where the system bucket lives.
+                    type: string
+                required:
+                - name
+                - region
+                type: object
+              systemTables:
+                description: SystemTables configures Iceberg system tables (Phase
+                  2).
+                properties:
+                  catalogType:
+                    default: nessie
+                    description: CatalogType is the Iceberg catalog backend.
+                    enum:
+                    - hadoop
+                    - nessie
+                    - glue
+                    type: string
+                  catalogUri:
+                    description: |-
+                      CatalogURI is the REST catalog endpoint (for nessie/glue).
+                      Default: in-cluster Nessie.
+                    type: string
+                  enabled:
+                    default: false
+                    description: Enabled turns on Iceberg system table writing (Phase
+                      2).
+                    type: boolean
+                type: object
+              terminationProtection:
+                default: false
+                description: |-
+                  TerminationProtection prevents accidental deletion.
+                  Requires explicit removal before ForgeCluster can be deleted.
+                type: boolean
+              trino:
+                description: Trino integration (Optimus). Omit to skip Trino.
+                properties:
+                  baseUrl:
+                    default: http://trino.trino.svc.cluster.local:8080
+                    type: string
+                  logBucket:
+                    default: forge-trino-logs
+                    description: LogBucket for Trino query logs.
+                    type: string
+                type: object
+              version:
+                description: |-
+                  Version of the Forge platform to deploy (e.g., "v0.6.4-beta").
+                  Maps to a version matrix: forge-api image tag, spark-operator chart version,
+                  CRD schemas. Changing this triggers a rolling upgrade.
+                type: string
+            required:
+            - dataBucket
+            - ecrRegistry
+            - irsa
+            - systemBucket
+            - version
+            type: object
+          status:
+            description: status defines the observed state of ForgeCluster.
+            properties:
+              components:
+                description: Components tracks per-component deployment status.
+                properties:
+                  crds:
+                    properties:
+                      message:
+                        description: Message provides detail on non-ready state.
+                        type: string
+                      ready:
+                        description: Ready indicates the component is operational.
+                        type: boolean
+                      version:
+                        description: Version is the deployed version of this component.
+                        type: string
+                    required:
+                    - ready
+                    type: object
+                  forgeApi:
+                    properties:
+                      message:
+                        description: Message provides detail on non-ready state.
+                        type: string
+                      ready:
+                        description: Ready indicates the component is operational.
+                        type: boolean
+                      version:
+                        description: Version is the deployed version of this component.
+                        type: string
+                    required:
+                    - ready
+                    type: object
+                  sparkOperator:
+                    properties:
+                      message:
+                        description: Message provides detail on non-ready state.
+                        type: string
+                      ready:
+                        description: Ready indicates the component is operational.
+                        type: boolean
+                      version:
+                        description: Version is the deployed version of this component.
+                        type: string
+                    required:
+                    - ready
+                    type: object
+                type: object
+              conditions:
+                description: Conditions follow the standard K8s condition pattern.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastReconciled:
+                description: LastReconciled is the timestamp of the last successful
+                  reconciliation.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the last spec generation the operator
+                  reconciled.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is a human-readable summary.
+                enum:
+                - Pending
+                - Installing
+                - Ready
+                - Upgrading
+                - Degraded
+                - Error
+                type: string
+              version:
+                description: Version is the currently deployed Forge version.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

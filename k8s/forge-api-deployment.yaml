@@ -1,0 +1,188 @@
+---
+# forge-api Deployment
+#
+# Runs the Forge control plane on the EKS cluster.
+# Accepts spark-submit --master rest://forge-api:6066 --deploy-mode cluster
+#
+# Prerequisites:
+#   - ForgeJob CRD installed: kubectl apply -f forgejob-crd.yaml
+#   - RBAC installed: kubectl apply -f forge-api-rbac.yaml
+#   - forge namespace created: kubectl create namespace forge
+#   - IRSA annotation on forge-api ServiceAccount (done by Terraform)
+#
+# RFC-0028: Forge Control Plane
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge-api
+  namespace: ${FORGE_NAMESPACE}
+  labels:
+    app: forge-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forge-api
+  template:
+    metadata:
+      labels:
+        app: forge-api
+    spec:
+      serviceAccountName: forge-api
+      containers:
+        - name: forge-api
+          image: ${FORGE_API_IMAGE}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 6066
+              name: rest
+            - containerPort: 8080
+              name: health
+          env:
+            - name: FORGE_NAMESPACE
+              value: ${FORGE_NAMESPACE}
+            - name: FORGE_MAX_CONCURRENT_JOBS
+              value: "5"
+            # Single image tag drives all Forge images (TKT-46 fix).
+            # forge-api derives crunch:$TAG-spark and crunch:$TAG from this.
+            - name: FORGE_IMAGE_TAG
+              value: ${FORGE_IMAGE_TAG}
+            - name: FORGE_METRICS_BASE_URI
+              value: ${FORGE_METRICS_BASE_URI}
+            - name: FORGE_SYSTEM_TABLE_URI
+              value: ${FORGE_SYSTEM_TABLE_URI}
+            # TKT-99: History bucket for /v1/jobs/history API.
+            # When empty, job history is disabled and only metrics/system table are written.
+            - name: FORGE_HISTORY_BUCKET
+              value: "${FORGE_HISTORY_BUCKET:-}"
+            - name: FORGE_DEFAULT_EXECUTORS
+              value: "${FORGE_DEFAULT_EXECUTORS}"
+            - name: FORGE_API_KEYS_FILE
+              value: /etc/forge-keys/keys
+            # Fail startup if API keys are not loaded. Set to "true" in
+            # production to prevent silent auth bypass from a missing Secret.
+            - name: FORGE_AUTH_REQUIRED
+              value: "${FORGE_AUTH_REQUIRED:-false}"
+            # RFC-0066: W3C traceparent propagation to Spark driver pods.
+            # When true, a valid traceparent header on /v1/submissions/create is
+            # injected as TRACEPARENT env var on the driver pod so the Connector
+            # can restore W3C context and export spans to olly-otel-collector:4317.
+            # When false (default), OTEL_SDK_DISABLED=true is always injected —
+            # safe for clusters without olly-otel-collector deployed.
+            - name: FORGE_TRACING_ENABLED
+              value: "${FORGE_TRACING_ENABLED:-true}"
+            # Golden data guard: reject non-learnOnly submissions to protected S3 prefixes.
+            # Prevents accidental overwrite of golden test datasets (see deploy/s3/).
+            - name: FORGE_PROTECTED_PREFIXES
+              value: "${FORGE_PROTECTED_PREFIXES:-s3://n-staging-testdata-us-west-2/forge-qa/raw}"
+            # ENG-056 (RFC-0084): Trino coordinator URL for /v1/trino/healthz proxy.
+            # Set to the in-cluster service address after Trino is deployed.
+            - name: FORGE_TRINO_BASE_URL
+              value: "${FORGE_TRINO_BASE_URL:-http://trino.trino.svc.cluster.local:8080}"
+            # ENG-057 (RFC-0084): S3 bucket for durable Trino event persistence.
+            # When set, POST /v1/trino/events also writes to s3://<bucket>/<date>/events_<ts>.json.
+            # Enables batch re-analysis via POST /v1/optimizer/analyze?logFormat=trino-json.
+            - name: FORGE_TRINO_LOG_BUCKET
+              value: "${FORGE_TRINO_LOG_BUCKET:-forge-trino-logs}"
+            # Console browser auth (TKT-010)
+            # Set FORGE_OAUTH_CLIENT_ID + FORGE_OAUTH_CLIENT_SECRET via k8s secret
+            # or leave empty to disable OAuth (API-key auth still enforced)
+            - name: FORGE_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: forge-oauth
+                  key: client_id
+                  optional: true
+            - name: FORGE_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: forge-oauth
+                  key: client_secret
+                  optional: true
+            - name: FORGE_OAUTH_ALLOWED_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: forge-oauth
+                  key: allowed_domain
+                  optional: true
+            - name: FORGE_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: forge-oauth
+                  key: session_secret
+                  optional: true
+          volumeMounts:
+            - name: api-keys
+              mountPath: /etc/forge-keys
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 6066
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 6066
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: api-keys
+          secret:
+            secretName: forge-api-keys
+            optional: true
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      tolerations:
+        - key: kubernetes.io/arch
+          operator: Equal
+          value: arm64
+          effect: NoSchedule
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-api
+  namespace: ${FORGE_NAMESPACE}
+  labels:
+    app: forge-api
+  annotations:
+    forge.granica.ai/security-note: "FORGE_ALLOWED_CIDRS must be set. Empty = open to internet."
+    # LB scheme toggle (from krypton enable_public_lb pattern):
+    #   FORGE_LB_SCHEME=internal  → private LB, reachable only within VPC (default, secure)
+    #   FORGE_LB_SCHEME=internet-facing → public LB, reachable from internet
+    # On GCP (GKE), set FORGE_GCP_LB_TYPE instead:
+    #   FORGE_GCP_LB_TYPE=Internal → private (default)
+    #   FORGE_GCP_LB_TYPE=""       → external (omit annotation)
+    #
+    # AWS NLB annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "${FORGE_LB_SCHEME:-internal}"
+    # TLS termination at the NLB. Set FORGE_ACM_CERT_ARN to an ACM certificate ARN
+    # to enable HTTPS on port 443. When empty, only HTTP on 6066 is exposed.
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "${FORGE_ACM_CERT_ARN}"
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+    # GCP annotations (ignored by AWS):
+    networking.gke.io/load-balancer-type: "${FORGE_GCP_LB_TYPE:-Internal}"
+spec:
+  type: LoadBalancer
+  loadBalancerSourceRanges: ${FORGE_ALLOWED_CIDRS}
+  selector:
+    app: forge-api
+  ports:
+    - name: rest
+      port: 6066
+      targetPort: 6066
+    - name: https
+      port: 443
+      targetPort: 6066

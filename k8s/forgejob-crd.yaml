@@ -1,0 +1,159 @@
+---
+# ForgeJob CRD — persistent job state store for the Forge control plane
+#
+# ForgeJob is the durable record of every job submitted through forge-api.
+# State is stored in etcd via the CRD — no separate database needed.
+# forge-api reconciles ForgeJob → SparkApplication lifecycle.
+#
+# RFC-0028: Forge Control Plane
+#
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: forgejobs.forge.granica.ai
+spec:
+  group: forge.granica.ai
+  scope: Namespaced
+  names:
+    plural: forgejobs
+    singular: forgejob
+    kind: ForgeJob
+    shortNames:
+      - fj
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: SubmissionID
+          type: string
+          jsonPath: .spec.submissionId
+        - name: DRR
+          type: number
+          jsonPath: .status.drr
+          format: float
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [submissionId, mainClass, mainApplicationFile]
+              properties:
+                submissionId:
+                  type: string
+                  description: "Spark REST submission ID (driver-<uuid>)"
+                mainClass:
+                  type: string
+                  description: "Spark driver main class"
+                mainApplicationFile:
+                  type: string
+                  description: "Path to application JAR or Python file"
+                arguments:
+                  type: array
+                  items:
+                    type: string
+                sparkConf:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: "Additional Spark configuration key-value pairs"
+                driverMemory:
+                  type: string
+                  default: "2g"
+                driverCores:
+                  type: integer
+                  default: 1
+                executorMemory:
+                  type: string
+                  default: "4g"
+                executorCores:
+                  type: integer
+                  default: 2
+                executorInstances:
+                  type: integer
+                  default: 2
+                image:
+                  type: string
+                  description: "Spark container image (overrides forge-api default)"
+                crunchImage:
+                  type: string
+                  description: "crunch-worker sidecar image (overrides forge-api default)"
+                serviceAccount:
+                  type: string
+                  default: "spark-driver"
+                namespace:
+                  type: string
+                  default: "forge"
+                traceparent:
+                  type: string
+                  description: "W3C traceparent header from the submission request (RFC-0066). When present, injected as TRACEPARENT env var on the driver pod so the Connector can restore W3C trace context."
+            status:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum: [queued, dispatched, running, completed, failed, killed]
+                  description: "Current lifecycle state"
+                sparkApplicationName:
+                  type: string
+                  description: "Name of the child SparkApplication resource"
+                driverPodName:
+                  type: string
+                submittedAt:
+                  type: string
+                  format: date-time
+                startedAt:
+                  type: string
+                  format: date-time
+                completedAt:
+                  type: string
+                  format: date-time
+                message:
+                  type: string
+                  description: "Human-readable status message or error"
+                errorMessage:
+                  type: string
+                  description: "Failure reason from Spark (populated when state=failed, TKT-RC-005)"
+                drr:
+                  type: number
+                  format: double
+                  description: "Data Reduction Ratio from Crunch sidecar (null until job completes with Crunch)"
+                inputRows:
+                  type: integer
+                  format: int64
+                  description: "Total input rows processed"
+                outputRows:
+                  type: integer
+                  format: int64
+                  description: "Total output rows written (should equal inputRows for row-preserving jobs)"
+                inputBytes:
+                  type: integer
+                  format: int64
+                  description: "Total input size in bytes"
+                outputBytes:
+                  type: integer
+                  format: int64
+                  description: "Total output size in bytes"
+                noOp:
+                  type: boolean
+                  description: "Optimizer intentionally skipped commit (for example minDrrGate no-op)"
+                noOpReason:
+                  type: string
+                  description: "Why no-op was chosen (for example: minDrrGate)"
+                projectedDrrPct:
+                  type: number
+                  format: double
+                  description: "Projected DRR percent at decision time for reporting"
+                filesSkippedLowDrr:
+                  type: integer
+                  format: int32
+                  description: "Files skipped because projected DRR was below minDrr"

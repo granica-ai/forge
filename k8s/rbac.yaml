@@ -1,0 +1,38 @@
+# RBAC for Spark on K8s with IRSA
+#
+# Prerequisites:
+#   1. Spark Operator installed: helm install spark-operator spark-operator/spark-operator --version 2.4.0 -n crunch
+#   2. IRSA trust policy on IAM role for the spark-driver service account
+#   3. S3 access policy attached to the IAM role
+#
+# The spark-driver ServiceAccount is created by the Spark Operator Helm chart.
+# Annotate it for IRSA:
+#   kubectl annotate sa spark-driver -n crunch \
+#     eks.amazonaws.com/role-arn=arn:aws:iam::ACCOUNT:role/ROLE_NAME
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-role
+  namespace: crunch
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
+  - apiGroups: ["sparkoperator.k8s.io"]
+    resources: ["sparkapplications", "sparkapplications/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-role-binding
+  namespace: crunch
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spark-role
+subjects:
+  - kind: ServiceAccount
+    name: spark-driver
+    namespace: crunch

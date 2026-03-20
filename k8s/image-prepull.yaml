@@ -1,0 +1,47 @@
+---
+# DaemonSet to pre-pull crunch and Spark images on all nodes.
+# Reduces sidecar startup from ~26s (cold pull) to ~2s (cached).
+# Runs once per node, exits immediately — just ensures image is in cache.
+#
+# Image tags use envsubst placeholders so deploy.sh can inject the current
+# release version. If applying manually, replace ${CRUNCH_IMAGE} and
+# ${SPARK_IMAGE} with the current release images, e.g.:
+#   envsubst < image-prepull.yaml | kubectl apply -f -
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: forge-image-prepull
+  namespace: ${FORGE_NAMESPACE:-forge}
+  labels:
+    app: forge-image-prepull
+spec:
+  selector:
+    matchLabels:
+      app: forge-image-prepull
+  template:
+    metadata:
+      labels:
+        app: forge-image-prepull
+    spec:
+      initContainers:
+        - name: pull-crunch
+          image: ${CRUNCH_IMAGE}
+          command: ["sh", "-c", "echo 'crunch image cached'"]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 10m, memory: 16Mi}
+        - name: pull-spark
+          image: ${SPARK_IMAGE}
+          command: ["sh", "-c", "echo 'spark image cached'"]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 10m, memory: 16Mi}
+      containers:
+        - name: pause
+          image: gcr.io/google-containers/pause:3.2
+          resources:
+            requests: {cpu: 1m, memory: 4Mi}
+            limits: {cpu: 1m, memory: 4Mi}
+      tolerations:
+        - operator: Exists
