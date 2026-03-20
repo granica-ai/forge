@@ -993,7 +993,7 @@ spec:
         env:
         - name: CLUSTER_NAME
           value: ""
-        image: 763165855768.dkr.ecr.us-west-2.amazonaws.com/forge-operator:v1.2.5
+        image: 763165855768.dkr.ecr.us-west-2.amazonaws.com/forge-operator:v1.2.6
         livenessProbe:
           httpGet:
             path: /healthz
