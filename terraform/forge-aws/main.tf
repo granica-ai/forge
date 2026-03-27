@@ -651,6 +651,10 @@ resource "helm_release" "forge_api" {
     name  = "env.FORGE_CRUNCH_IMAGE"
     value = var.crunch_image
   }
+  set {
+    name  = "nodeSelector.kubernetes\\.io/arch"
+    value = var.arch
+  }
 }
 
 # ── IRSA Annotations ──────────────────────────────────────────────────────────

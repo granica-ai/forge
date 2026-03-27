@@ -1,7 +1,10 @@
 replicaCount: 1
 
+# Cloud provider: "aws" (default) or "azure".
+cloud: aws
+
 # clusterName is surfaced via GET /v1/system/info so FDEs can identify the deployment.
-# Set this to the EKS cluster name when deploying (e.g. customer-ai-forge, project-n-bigabid-c36b).
+# Set this to the cluster name when deploying (EKS or AKS cluster name).
 clusterName: ""
 
 image:
@@ -50,21 +53,17 @@ resources:
     memory: 256Mi
 
 serviceAccount:
-  # Set to the IRSA role ARN for this cluster (output from Terraform).
-  annotations:
-    eks.amazonaws.com/role-arn: ""
+  # AWS: set eks.amazonaws.com/role-arn to the IRSA role ARN.
+  # Azure: set azure.workload.identity/client-id to the Managed Identity client ID.
+  annotations: {}
 
-# Spark driver IRSA role for the spark-driver SA.
+# Spark driver identity for the spark-driver SA.
 sparkDriver:
   serviceAccount:
-    annotations:
-      eks.amazonaws.com/role-arn: ""
+    annotations: {}
 
-nodeSelector:
-  kubernetes.io/arch: arm64
+# Architecture — set by each Terraform module based on VM family.
+# AWS Graviton = arm64, Azure v7 = amd64. No default — schedule on any arch.
+nodeSelector: {}
 
-tolerations:
-  - key: kubernetes.io/arch
-    operator: Equal
-    value: arm64
-    effect: NoSchedule
+tolerations: []

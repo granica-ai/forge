@@ -15,6 +15,9 @@ spec:
     metadata:
       labels:
         app: forge-api
+        {{- if eq .Values.cloud "azure" }}
+        azure.workload.identity/use: "true"
+        {{- end }}
     spec:
       serviceAccountName: forge-api
       securityContext:
@@ -44,11 +47,15 @@ spec:
             - name: FORGE_IMAGE_TAG
               value: {{ .Values.forgeImageTag | quote }}
             # Expose cluster identity for GET /v1/system/info (TKT-J-013).
-            # AWS_ROLE_ARN and AWS_DEFAULT_REGION are injected by IRSA automatically.
-            # EKS_CLUSTER_NAME must be set via values.yaml clusterName field.
             {{- if .Values.clusterName }}
+            {{- if eq .Values.cloud "azure" }}
+            - name: AKS_CLUSTER_NAME
+              value: {{ .Values.clusterName | quote }}
+            {{- else }}
+            # AWS_ROLE_ARN and AWS_DEFAULT_REGION are injected by IRSA automatically.
             - name: EKS_CLUSTER_NAME
               value: {{ .Values.clusterName | quote }}
+            {{- end }}
             {{- end }}
           {{- if .Values.apiKeys.secretName }}
           # TF-004: mount API key secret so forge-api can authenticate requests

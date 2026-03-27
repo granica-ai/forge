@@ -105,6 +105,16 @@ variable "enable_yunikorn" {
   default     = false
 }
 
+variable "arch" {
+  description = "CPU architecture for node scheduling: arm64 (Graviton) or amd64 (Intel/AMD). Must match the instance types in your node groups."
+  type        = string
+  default     = "arm64"
+  validation {
+    condition     = contains(["arm64", "amd64"], var.arch)
+    error_message = "arch must be 'arm64' or 'amd64'."
+  }
+}
+
 variable "tracing_enabled" {
   description = <<-EOT
     Enable distributed tracing via AWS X-Ray (RFC-0066).
