@@ -10,15 +10,7 @@ git clone --depth 1 --branch "${FORGE_VERSION}" https://github.com/granica-ai/fo
 cd forge/terraform/forge-azure
 ```
 
-## Step 2: Check vCPU quota
-
-```bash
-az vm list-usage --location eastus2 -o table | grep -iE "Family|Current"
-```
-
-You need ~12 on-demand vCPUs. If your VM family quota is low (default 10), request an increase or use smaller VMs in your tfvars.
-
-## Step 3: Create your config
+## Step 2: Create your config
 
 ```bash
 cat > forge-local.tfvars <<'EOF'
@@ -34,7 +26,7 @@ mode            = "customer"
 EOF
 ```
 
-## Step 4: Deploy
+## Step 3: Deploy
 
 ```bash
 terraform init
@@ -46,7 +38,7 @@ terraform apply -var-file=granica-release-images.tfvars -var-file=forge-local.tf
 > terraform apply -var-file=granica-release-images.tfvars -var-file=forge-local.tfvars -auto-approve
 > ```
 
-## Step 5: Connect to the cluster
+## Step 4: Connect to the cluster
 
 ```bash
 az aks get-credentials \
@@ -55,7 +47,7 @@ az aks get-credentials \
 kubectl get pods -A
 ```
 
-## Step 6: Create API key and verify
+## Step 5: Create API key and verify
 
 ```bash
 kubectl create secret generic forge-api-keys -n forge --from-literal=keys="my-api-key"
@@ -68,7 +60,7 @@ curl -s http://localhost:6066/healthz
 
 Expected: `{"status":"ok"}`
 
-## Step 7: Upload data
+## Step 6: Upload data
 
 ```bash
 STORAGE=$(terraform output -raw storage_account_name)
@@ -90,14 +82,14 @@ for MI in $(az identity list --resource-group $RG --query "[].principalId" -o ts
 done
 ```
 
-## Step 8: Run Discovery
+## Step 7: Run Discovery
 
 ```bash
 curl -s -H "Authorization: Bearer my-api-key" \
   "http://localhost:6066/v1/discover?prefix=abfss://mydata@${STORAGE}.dfs.core.windows.net/"
 ```
 
-## Step 9: Run Crunch
+## Step 8: Run Crunch
 
 ```bash
 curl -s -X POST http://localhost:6066/v1/submissions/create \
@@ -113,10 +105,10 @@ curl -s -X POST http://localhost:6066/v1/submissions/create \
 
 Note the `submissionId` from the response.
 
-## Step 10: Monitor
+## Step 9: Monitor
 
 ```bash
-SID="driver-XXXXX"  # from step 9
+SID="driver-XXXXX"  # from step 8
 
 # Poll status
 curl -s "http://localhost:6066/v1/submissions/status/$SID" -H "Authorization: Bearer my-api-key"
