@@ -33,11 +33,6 @@ terraform init
 terraform apply -var-file=granica-release-images.tfvars -var-file=forge-local.tfvars -auto-approve
 ```
 
-> First apply may fail on Helm releases (auth propagation delay). Wait 30s and re-apply:
-> ```bash
-> terraform apply -var-file=granica-release-images.tfvars -var-file=forge-local.tfvars -auto-approve
-> ```
-
 ## Step 4: Connect to the cluster
 
 ```bash
