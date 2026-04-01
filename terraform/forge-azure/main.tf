@@ -469,6 +469,19 @@ resource "helm_release" "forge_api" {
   }
 }
 
+# ── API Key Secret ────────────────────────────────────────────────────────────
+
+resource "kubernetes_secret" "forge_api_keys" {
+  depends_on = [helm_release.forge_api]
+  metadata {
+    name      = "forge-api-keys"
+    namespace = "forge"
+  }
+  data = {
+    keys = var.api_key
+  }
+}
+
 # ── Workload Identity Annotations ────────────────────────────────────────────
 # Applied after forge-api Helm release creates the service accounts.
 # Azure Workload Identity requires BOTH an annotation (client-id) AND

@@ -120,6 +120,12 @@ variable "acr_id" {
   default     = ""
 }
 
+variable "api_key" {
+  description = "API key for forge-api authentication. Creates the forge-api-keys K8s secret automatically."
+  type        = string
+  sensitive   = true
+}
+
 variable "vm_size_system" {
   description = "VM size for system node pool"
   type        = string

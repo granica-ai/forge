@@ -18,6 +18,7 @@ subscription_id = "YOUR_SUBSCRIPTION_ID"
 region          = "eastus2"
 cluster_name    = "my-forge"
 mode            = "customer"
+api_key         = "my-api-key"
 
 # ACR — required if images are in Azure Container Registry
 # acr_id = "/subscriptions/YOUR_SUB/resourceGroups/YOUR_RG/providers/Microsoft.ContainerRegistry/registries/YOUR_ACR"
@@ -45,12 +46,10 @@ az aks get-credentials \
 kubectl get pods -A
 ```
 
-## Step 5: Create API key and verify
+## Step 5: Verify forge-api is healthy
 
 ```bash
-kubectl create secret generic forge-api-keys -n forge --from-literal=keys="my-api-key"
-kubectl rollout restart deployment forge-api -n forge
-sleep 20
+sleep 30  # wait for pods to start
 kubectl port-forward svc/forge-api 6066:6066 -n forge &
 sleep 3
 curl -s http://localhost:6066/healthz
