@@ -1,13 +1,14 @@
 # Forge on Azure (AKS + ADLS Gen2 + Workload Identity)
 
-Deploy Granica Forge on Azure. Mirrors the AWS module (`terraform/forge-aws/`) with Azure-native equivalents.
+Deploy Granica Forge on Azure. Creates an AKS cluster with node pools, ADLS Gen2 storage, Managed Identities, and all required Helm releases.
 
 ## Prerequisites
 
 - Terraform **>= 1.9**
 - Azure CLI (`az login`)
-- `kubelogin` — required for Helm/kubectl auth via Azure AD
-- An active Azure subscription with sufficient vCPU quota (see [Quotas](#quotas) below)
+- `kubelogin`
+- `kubectl`
+- Sufficient vCPU quota (check with `az vm list-usage --location <region> -o table`)
 
 ## Quick start
 
@@ -28,31 +29,35 @@ terraform apply -var-file=granica-release-images.tfvars \
   -var='storage_container_names=["your-data-container"]'
 ```
 
-After apply, point **kubectl** at the new cluster:
+After apply, point **kubectl** at the new cluster (resource group defaults to `forge-<cluster_name>-rg`):
 
 ```bash
-az aks get-credentials --resource-group forge-forge-rg --name forge
+az aks get-credentials --resource-group $(terraform output -raw resource_group_name) --name $(terraform output -raw cluster_name)
 ```
+
+> **Note:** First apply may fail on Helm releases (auth propagation). Wait 30s and re-apply.
 
 ## What gets created
 
-| Resource | Purpose | AWS Equivalent |
-|----------|---------|----------------|
-| Resource Group | All resources scoped here | (account-level) |
-| VNet + Subnet + NAT Gateway | Networking (optional, skipped if `vnet_id` set) | VPC + subnets + NAT |
-| AKS Cluster | Kubernetes control plane | EKS |
-| 4 Node Pools | system, spark-driver, spark-executor (Spot), evaluator | EKS managed node groups |
-| Storage Account (ADLS Gen2) | `abfs://` storage for system data | S3 buckets |
-| 2 Managed Identities | forge-api + spark-driver | IRSA roles |
-| Federated Identity Credentials | K8s SA → Managed Identity trust | OIDC provider trust |
-| Storage RBAC (Blob Data Contributor) | Data plane access | S3 IAM policies |
-| Spark Operator (Helm) | Manages SparkApplication CRDs | Same |
-| kube-prometheus-stack (Helm) | Monitoring + Grafana | Same |
-| forge-api (Helm) | Forge control plane | Same |
+| Resource | Purpose |
+|----------|---------|
+| Resource Group | All resources scoped here |
+| VNet + Subnet + NAT Gateway | Networking (optional, skipped if `vnet_id` set) |
+| AKS Cluster | Kubernetes control plane |
+| 4 Node Pools | system, spark-driver, spark-executor (Spot), evaluator |
+| Storage Account (ADLS Gen2) | `abfss://` storage for system data |
+| 2 Managed Identities | forge-api + spark-driver |
+| Federated Identity Credentials | K8s SA → Managed Identity trust |
+| Storage RBAC (Blob Data Contributor) | Data plane access |
+| Spark Operator (Helm) | Manages SparkApplication CRDs |
+| kube-prometheus-stack (Helm) | Monitoring + Grafana |
+| forge-api (Helm) | Forge control plane |
 
 ## Release-provided images (`granica-release-images.tfvars`)
 
-Every release tag includes this file with the three **required** image variables pinned to the matching release. Images are pulled from Granica ECR (`us-west-2`). If your AKS cluster cannot reach ECR, push these images to your ACR and update the URIs.
+Every release tag includes this file with the three **required** image variables pinned to the matching release.
+
+Pass it as the **first** `-var-file`, then add your own file for account-specific settings:
 
 ```bash
 cd terraform/forge-azure
@@ -66,143 +71,115 @@ terraform apply tfplan
 
 ## Your variable file (`forge-local.tfvars`)
 
-Create a second file (keep it out of version control if it contains account details):
-
 ```hcl
 subscription_id = "00000000-0000-0000-0000-000000000000"
 region          = "eastus2"
 cluster_name    = "forge"
 mode            = "customer"
 
-# Optional — grant Workload Identity access to storage containers Forge should use
-# storage_container_names = [
-#   "your-data-container",
-# ]
+# Optional — grant Workload Identity access to storage containers
+# storage_container_names = ["your-data-container"]
 
-# Optional: existing VNet instead of creating one
-# vnet_id   = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/..."
-# subnet_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/.../subnets/..."
-
-# Optional: custom VM sizes (defaults shown)
-# vm_size_system         = "Standard_D4s_v5"
-# vm_size_spark_driver   = "Standard_D8s_v5"
-# vm_size_spark_executor = "Standard_D8s_v5"
+# Optional: existing VNet
+# vnet_id   = "/subscriptions/.../providers/Microsoft.Network/virtualNetworks/..."
+# subnet_id = "/subscriptions/.../providers/Microsoft.Network/virtualNetworks/.../subnets/..."
 ```
 
-## Variables reference
+Other optional inputs: `kubernetes_version`, `vm_size_system`, `vm_size_spark_driver`, `vm_size_spark_executor`, `storage_account_name`, `resource_group_name`, `arch`, `tags`, `enable_yunikorn`. See `variables.tf`.
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `subscription_id` | Yes | — | Azure subscription ID |
-| `forge_api_image` | Yes | — | forge-api container image URI (set via tfvars) |
-| `spark_image` | Yes | — | Spark container image URI (set via tfvars) |
-| `crunch_image` | Yes | — | crunch-worker sidecar image URI (set via tfvars) |
-| `cluster_name` | No | `forge` | AKS cluster name |
-| `region` | No | `eastus2` | Azure region |
-| `kubernetes_version` | No | `1.32` | Kubernetes version |
-| `mode` | No | `customer` | `customer` (scoped RBAC) or `hosted` (account-level RBAC) |
-| `storage_container_names` | No | `[]` | Storage containers for data access RBAC |
-| `vnet_id` | No | `""` | Existing VNet ID (creates new if empty) |
-| `subnet_id` | No | `""` | Existing subnet ID for AKS nodes |
-| `storage_account_name` | No | auto | Must be globally unique, 3-24 lowercase alphanumeric |
-| `resource_group_name` | No | auto | Resource group name |
-| `vm_size_system` | No | `Standard_D4s_v5` | System node pool VM size |
-| `vm_size_spark_driver` | No | `Standard_D8s_v5` | Spark driver node pool VM size |
-| `vm_size_spark_executor` | No | `Standard_D8s_v5` | Spark executor (Spot) node pool VM size |
-| `tags` | No | `{}` | Tags applied to all resources |
-| `enable_yunikorn` | No | `false` | Install Apache YuniKorn batch scheduler |
-| `tracing_enabled` | No | `true` | Sets FORGE_TRACING_ENABLED on forge-api |
+## Running Forge
 
-## Deployment modes
-
-Same as AWS:
-
-- **`customer`** (Mode A): Forge deployed in customer's subscription. RBAC scoped to declared `storage_container_names`.
-- **`hosted`** (Mode B): Forge deployed in Granica's subscription. RBAC granted at storage account level — the customer controls access via their own storage account RBAC.
-
-## Identity model (Workload Identity vs IRSA)
-
-| Concept | AWS | Azure |
-|---------|-----|-------|
-| Pod identity | IRSA | Workload Identity |
-| Cloud identity | IAM Role | Managed Identity |
-| Trust binding | OIDC provider | Federated Identity Credential |
-| SA annotation | `eks.amazonaws.com/role-arn` | `azure.workload.identity/client-id` |
-| Extra requirement | — | Pod label: `azure.workload.identity/use: "true"` |
-
-The Terraform module handles all of this automatically — creates the Managed Identities, federated credentials, RBAC role assignments, and annotates/labels the K8s service accounts.
-
-## Node pools
-
-| Pool | VM Size (default) | Priority | Autoscale | Labels |
-|------|-------------------|----------|-----------|--------|
-| system | Standard_D4s_v5 | Regular | 1-4 | `forge.granica.ai/pool=system` |
-| sparkdriver | Standard_D8s_v5 | Regular | 0-4 | `forge.granica.ai/pool=spark-driver` |
-| sparkexec | Standard_D8s_v5 | **Spot** | 0-8 | `forge.granica.ai/pool=spark-executor` |
-| evaluator | Standard_D8s_v5 | Regular | 0-2 | `forge.granica.ai/pool=evaluator` |
-
-Spot pool uses `eviction_policy = Delete` and `spot_max_price = -1` (pay up to on-demand price) for best availability.
-
-**Note:** No Karpenter on Azure — AKS uses the built-in Cluster Autoscaler. Karpenter for Azure is still in preview.
-
-## Networking
-
-When `vnet_id` is empty (default), the module creates:
-
-- VNet: `10.0.0.0/16`
-- AKS subnet: `10.0.0.0/20`
-- NAT Gateway with static public IP (predictable egress)
-- Azure CNI Overlay: pod IPs from `10.48.0.0/16` (virtual, NATed through node IPs)
-
-## Storage
-
-A single Storage Account with ADLS Gen2 (HNS enabled) is created. Forge system data goes into the `system` container. Customer data containers are passed via `storage_container_names`.
-
-URI format: `abfs://container@account.dfs.core.windows.net/path`
-
-## Quotas
-
-Azure vCPU quotas are **per-VM-family** (default 10 per family). Before deploying, check and request increases:
+### 1. Create API key and verify
 
 ```bash
-az vm list-usage --location eastus2 -o table | grep -i "family"
+kubectl create secret generic forge-api-keys -n forge --from-literal=keys="my-api-key"
+kubectl rollout restart deployment forge-api -n forge
+sleep 20
+kubectl port-forward svc/forge-api 6066:6066 -n forge &
+sleep 3
+curl -s http://localhost:6066/healthz
+# Expected: {"status":"ok"}
 ```
 
-Minimum recommended quotas:
+### 2. Upload data
 
-| Quota | Default | Recommended |
-|-------|---------|-------------|
-| Standard Dv5 Family | 10 | 64 |
-| Low Priority (Spot) | 3 | 64 |
+Forge needs Parquet data in ADLS Gen2. Create a container and upload your files:
 
-Request increases via Azure Portal: Support + Troubleshooting > New support request > Quota.
+```bash
+STORAGE=$(terraform output -raw storage_account_name)
+RG=$(terraform output -raw resource_group_name)
+
+# Create container
+az storage container create --account-name $STORAGE --name mydata --auth-mode login
+
+# Upload Parquet files
+az storage blob upload-batch --account-name $STORAGE --destination mydata \
+  --source /path/to/parquet/files --auth-mode login --overwrite
+
+# Grant Forge identities access to the new container
+STORAGE_ID=$(az storage account show --name $STORAGE --query id -o tsv)
+for MI in $(az identity list --resource-group $RG --query "[].principalId" -o tsv); do
+  az role assignment create --assignee $MI --role "Storage Blob Data Contributor" \
+    --scope "$STORAGE_ID/blobServices/default/containers/mydata" -o none
+done
+```
+
+### 3. Discovery
+
+```bash
+curl -s -H "Authorization: Bearer my-api-key" \
+  "http://localhost:6066/v1/discover?prefix=abfss://mydata@${STORAGE}.dfs.core.windows.net/"
+```
+
+### 4. Crunch (auto-learn)
+
+```bash
+curl -s -X POST http://localhost:6066/v1/submissions/create \
+  -H "Authorization: Bearer my-api-key" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"mainClass\": \"com.granica.forge.ForgeOptimizer\",
+    \"appResource\": \"local:///opt/spark/jars/crunch-spark-assembly-0.1.0.jar\",
+    \"appArgs\": [\"--table-path\", \"abfss://mydata@${STORAGE}.dfs.core.windows.net/my-table/\", \"--auto-learn\"],
+    \"sparkProperties\": {\"spark.granica.enabled\": \"true\"}
+  }"
+```
+
+### 5. Monitor
+
+```bash
+SID="driver-XXXXX"  # submissionId from step 4
+
+# Poll status
+curl -s "http://localhost:6066/v1/submissions/status/$SID" -H "Authorization: Bearer my-api-key"
+
+# Watch pods
+kubectl get pods -n forge -w
+
+# Driver logs
+kubectl logs -f -n forge -l spark-role=driver
+```
+
+States: `SUBMITTED` → `RUNNING` → `FINISHED` (success) or `FAILED`
+
+### Console UI
+
+```bash
+kubectl port-forward svc/forge-api 6066:6066 -n forge &
+# Open http://localhost:6066/console/ in browser
+```
 
 ## Outputs
 
 | Output | Description |
 |--------|-------------|
-| `forge_api_endpoint` | `rest://<ip>:6066` — use as `spark-submit --master` value |
+| `forge_api_endpoint` | `rest://<ip>:6066` |
 | `cluster_name` | AKS cluster name |
-| `kubeconfig_command` | `az aks get-credentials` command to configure kubectl |
-| `storage_account_name` | Storage Account name for `abfs://` URIs |
-| `resource_group_name` | Resource group containing all resources |
+| `kubeconfig_command` | `az aks get-credentials` command |
+| `storage_account_name` | Storage Account name for `abfss://` URIs |
+| `resource_group_name` | Resource group name |
 | `deploy_mode` | `customer` or `hosted` |
 
 ## Teardown
 
 See [TEARDOWN.md](TEARDOWN.md).
-
-## Differences from AWS module
-
-| Area | AWS (`forge-aws`) | Azure (`forge-azure`) |
-|------|-------------------|----------------------|
-| Cluster | EKS (module) | AKS (resource) |
-| Networking | VPC module | VNet + subnet resources |
-| CSI drivers | EBS CSI addon + IRSA | Built-in (no setup needed) |
-| Pod identity | IRSA (annotation only) | Workload Identity (annotation + label) |
-| Storage | S3 bucket ARNs | Storage containers + RBAC |
-| Node scaling | Karpenter (optional) + MNG | Cluster Autoscaler (built-in) |
-| Tracing | X-Ray + ADOT Collector | Azure Monitor (native) |
-| LB annotations | AWS NLB | Azure LB |
-| SG cleanup | TKT-102 workaround | Not needed |
-| CI runner | GitLab OIDC + IAM | Not yet implemented |

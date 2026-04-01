@@ -442,6 +442,10 @@ resource "helm_release" "forge_api" {
     value = azurerm_storage_account.forge.name
   }
   set {
+    name  = "env.AZURE_SPARK_CLIENT_ID"
+    value = azurerm_user_assigned_identity.spark_driver.client_id
+  }
+  set {
     name  = "cloud"
     value = "azure"
   }
