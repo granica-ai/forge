@@ -52,6 +52,10 @@ metadata:
     {{- end }}
   annotations:
     {{- toYaml .Values.sparkDriver.serviceAccount.annotations | nindent 4 }}
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
