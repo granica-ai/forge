@@ -19,6 +19,9 @@ region          = "eastus2"
 cluster_name    = "my-forge"
 mode            = "customer"
 
+# ACR — required if images are in Azure Container Registry
+# acr_id = "/subscriptions/YOUR_SUB/resourceGroups/YOUR_RG/providers/Microsoft.ContainerRegistry/registries/YOUR_ACR"
+
 # VM sizes — adjust to match your quota
 # vm_size_system         = "Standard_D2as_v7"
 # vm_size_spark_driver   = "Standard_F4as_v7"

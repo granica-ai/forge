@@ -157,6 +157,16 @@ resource "azurerm_kubernetes_cluster" "forge" {
   ]
 }
 
+# ── ACR Pull Permission ────────────────────────────────────────────────────────
+# Grant AcrPull to the AKS kubelet identity so nodes can pull images from ACR.
+
+resource "azurerm_role_assignment" "aks_acr_pull" {
+  count                = var.acr_id != "" ? 1 : 0
+  scope                = var.acr_id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_kubernetes_cluster.forge.kubelet_identity[0].object_id
+}
+
 # ── Node Pools ────────────────────────────────────────────────────────────────
 
 resource "azurerm_kubernetes_cluster_node_pool" "spark_driver" {

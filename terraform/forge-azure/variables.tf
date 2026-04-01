@@ -114,6 +114,12 @@ variable "arch" {
   }
 }
 
+variable "acr_id" {
+  description = "Azure Container Registry resource ID. When set, grants AcrPull to the AKS kubelet identity so nodes can pull images."
+  type        = string
+  default     = ""
+}
+
 variable "vm_size_system" {
   description = "VM size for system node pool"
   type        = string
