@@ -69,6 +69,15 @@ terraform plan \
 terraform apply tfplan
 ```
 
+Image versions are set automatically by `granica-release-images.tfvars` — you do not need to specify them. To override any image for testing:
+
+```bash
+terraform apply -var-file=granica-release-images.tfvars \
+  -var="forge_api_image=granicaaz.azurecr.io/forge-api:v0.6.21-alpha" \
+  -var="crunch_image=granicaaz.azurecr.io/crunch:v0.6.21-alpha-azure3" \
+  -var="spark_image=granicaaz.azurecr.io/crunch:v0.6.21-alpha-spark"
+```
+
 ## Your variable file (`forge-local.tfvars`)
 
 ```hcl
