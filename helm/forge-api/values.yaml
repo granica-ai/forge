@@ -43,6 +43,7 @@ apiKeys:
 service:
   type: ClusterIP
   port: 6066
+  annotations: {}
 
 resources:
   requests:
