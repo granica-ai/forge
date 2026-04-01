@@ -13,7 +13,7 @@ Deploy Granica Forge on Azure. Creates an AKS cluster with node pools, ADLS Gen2
 ## Quick start
 
 ```bash
-export FORGE_VERSION=v1.2.3
+export FORGE_VERSION=v1.2.7
 git clone --depth 1 --branch "${FORGE_VERSION}" https://github.com/granica-ai/forge.git
 cd forge/terraform/forge-azure
 terraform init
