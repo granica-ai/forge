@@ -62,6 +62,9 @@ sparkDriver:
   serviceAccount:
     annotations: {}
 
+# imagePullSecrets for pulling from private registries (e.g. ACR with token auth).
+imagePullSecrets: []
+
 # Architecture — set by each Terraform module based on VM family.
 # AWS Graviton = arm64, Azure v7 = amd64. No default — schedule on any arch.
 nodeSelector: {}
