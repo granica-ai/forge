@@ -1,0 +1,50 @@
+# Template: QueryUI demo environment reconciled through ForgeCluster.
+# Replace the placeholder values below for your target environment.
+#
+# External prerequisites are still environment-specific. At minimum, ensure:
+# - the data bucket exists
+# - the system bucket exists
+# - the referenced Jupyter auth secret exists
+apiVersion: forge.granica.ai/v1alpha1
+kind: ForgeCluster
+metadata:
+  name: <forgecluster-name>
+  namespace: forge-system
+spec:
+  version: "<gp1-engine-release-tag>"
+  ecrRegistry: "<aws-account>.dkr.ecr.<region>.amazonaws.com"
+  mode: "poc"
+
+  dataBucket: "<data-bucket>"
+  systemBucket:
+    name: "<system-bucket>"
+    region: "<region>"
+
+  irsa:
+    forgeApiRoleArn: "arn:aws:iam::<account-id>:role/<forge-api-role>"
+    sparkDriverRoleArn: "arn:aws:iam::<account-id>:role/<spark-driver-role>"
+
+  namespaces:
+    forge: "<forge-namespace>"
+    crunch: "<crunch-namespace>"
+
+  protectedPrefixes: []
+
+  queryUi:
+    activeBackend: "jupyter"
+    demoTablePath: "s3a://<demo-table-path>"
+    jupyter:
+      enabled: true
+      tokenSecretRef:
+        name: "<jupyter-token-secret>"
+        key: "token"
+    sparkConnect:
+      enabled: true
+      sparkVersion: "4.1.1"
+      serviceAccountName: "spark-driver"
+      sparkConf:
+        spark.sql.parquet.enableVectorizedReader: "false"
+      hadoopConf:
+        fs.s3a.aws.credentials.provider: "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+        fs.s3a.endpoint: "s3.<region>.amazonaws.com"
+        fs.s3a.impl: "org.apache.hadoop.fs.s3a.S3AFileSystem"

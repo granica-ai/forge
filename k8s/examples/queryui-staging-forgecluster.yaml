@@ -1,0 +1,50 @@
+# Example: QueryUI demo on a shared staging cluster.
+#
+# Prerequisites:
+#   - data bucket and system bucket must exist
+#   - Jupyter auth secret must exist in the Forge namespace
+#   - IRSA trust policies must cover both service accounts
+apiVersion: forge.granica.ai/v1alpha1
+kind: ForgeCluster
+metadata:
+  name: queryui-staging
+  namespace: forge-system
+spec:
+  version: "<release-tag>"
+  ecrRegistry: "<ecr-registry>"
+  mode: "poc"
+
+  dataBucket: "<data-bucket>"
+  systemBucket:
+    name: "<system-bucket>"
+    region: "us-west-2"
+
+  irsa:
+    forgeApiRoleArn: "<forge-api-role-arn>"
+    sparkDriverRoleArn: "<spark-driver-role-arn>"
+
+  namespaces:
+    forge: "<forge-namespace>"
+    crunch: "crunch"
+
+  protectedPrefixes:
+    - "s3://<testdata-bucket>/forge-qa/raw"
+
+  queryUi:
+    activeBackend: "jupyter"
+    demoTablePath: "s3a://<expendable-bucket>/forge-qa/delta/gen_bigabid_partitioned"
+    jupyter:
+      enabled: true
+      tokenSecretRef:
+        name: "forge-jupyter-auth"
+        key: "token"
+    sparkConnect:
+      enabled: true
+      sparkVersion: "4.1.1"
+      serviceAccountName: "spark-driver"
+      sparkConf:
+        spark.sql.parquet.enableVectorizedReader: "false"
+      hadoopConf:
+        fs.s3a.aws.credentials.provider: "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+        fs.s3a.endpoint: "s3.us-west-2.amazonaws.com"
+        fs.s3a.impl: "org.apache.hadoop.fs.s3a.S3AFileSystem"

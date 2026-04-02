@@ -1,0 +1,80 @@
+{{- if .Values.workspace.kyuubi.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kyuubi-defaults
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: kyuubi
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+data:
+  kyuubi-defaults.conf: |
+    {{- range $k, $v := .Values.workspace.kyuubi.config }}
+    {{ $k }}={{ $v }}
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyuubi
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: kyuubi
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kyuubi
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kyuubi
+    spec:
+      containers:
+        - name: kyuubi
+          image: {{ .Values.workspace.kyuubi.image.repository }}:{{ .Values.workspace.kyuubi.image.tag }}
+          imagePullPolicy: {{ .Values.workspace.kyuubi.image.pullPolicy }}
+          ports:
+            - name: thrift
+              containerPort: {{ .Values.workspace.kyuubi.service.thriftPort }}
+            - name: web
+              containerPort: {{ .Values.workspace.kyuubi.service.webPort }}
+          env:
+            {{- range $k, $v := .Values.workspace.kyuubi.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: kyuubi-defaults
+              mountPath: /opt/kyuubi/conf/kyuubi-defaults.conf
+              subPath: kyuubi-defaults.conf
+          resources:
+            {{- toYaml .Values.workspace.kyuubi.resources | nindent 12 }}
+      volumes:
+        - name: kyuubi-defaults
+          configMap:
+            name: kyuubi-defaults
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kyuubi
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: kyuubi
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  type: {{ .Values.workspace.kyuubi.service.type }}
+  selector:
+    app.kubernetes.io/name: kyuubi
+  ports:
+    - name: thrift
+      port: {{ .Values.workspace.kyuubi.service.thriftPort }}
+      targetPort: {{ .Values.workspace.kyuubi.service.thriftPort }}
+      protocol: TCP
+    - name: web
+      port: {{ .Values.workspace.kyuubi.service.webPort }}
+      targetPort: {{ .Values.workspace.kyuubi.service.webPort }}
+      protocol: TCP
+{{- end }}

@@ -157,3 +157,31 @@ spec:
                   type: integer
                   format: int32
                   description: "Files skipped because projected DRR was below minDrr"
+                filesProcessed:
+                  type: integer
+                  format: int64
+                  description: "Number of files processed by the optimizer (TKT-67)"
+                filesSkipped:
+                  type: integer
+                  format: int64
+                  description: "Number of files skipped via reference-copy (RFC-0065)"
+                bytesSkipped:
+                  type: integer
+                  format: int64
+                  description: "Bytes skipped via reference-copy (RFC-0065)"
+                referenceCopyRatio:
+                  type: number
+                  format: double
+                  description: "Fraction of files skipped via reference-copy (RFC-0065)"
+                savingsReport:
+                  type: object
+                  description: "Crunch reduction and tiering savings summary (RFC-0101)"
+                  x-kubernetes-preserve-unknown-fields: true
+                cpuSeconds:
+                  type: number
+                  format: double
+                  description: "Total executor CPU time in seconds across all tasks (RFC-0101)"
+                memoryGbSeconds:
+                  type: number
+                  format: double
+                  description: "Integral of peak execution memory over task duration in GB-seconds (RFC-0101)"

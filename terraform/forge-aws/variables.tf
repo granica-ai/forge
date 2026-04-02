@@ -36,8 +36,8 @@ variable "s3_bucket_arns" {
     need S3 access yet. In 'hosted' mode this is ignored — bucket policies on the customer side
     control access; the identity policy grants s3:* on Resource:* (TKT-020).
   EOT
-  type    = list(string)
-  default = []
+  type        = list(string)
+  default     = []
 }
 
 variable "forge_api_image" {
@@ -72,7 +72,7 @@ variable "mode" {
 variable "public_access_cidrs" {
   description = "CIDR blocks allowed to reach the EKS API server public endpoint. Restrict to known egress IPs for production."
   type        = list(string)
-  default     = ["0.0.0.0/0"]  # Override in production tfvars
+  default     = ["0.0.0.0/0"] # Override in production tfvars
 }
 
 variable "tags" {
@@ -105,14 +105,35 @@ variable "enable_yunikorn" {
   default     = false
 }
 
-variable "arch" {
-  description = "CPU architecture for node scheduling: arm64 (Graviton) or amd64 (Intel/AMD). Must match the instance types in your node groups."
-  type        = string
-  default     = "arm64"
-  validation {
-    condition     = contains(["arm64", "amd64"], var.arch)
-    error_message = "arch must be 'arm64' or 'amd64'."
-  }
+variable "existing_irsa_role_arn" {
+  description = <<-EOT
+    ARN of a pre-existing IAM role to use for both forge-api and spark-driver
+    service accounts instead of creating new roles. Use when the role ARN has
+    already been shared with the customer and added to their S3 bucket policies
+    (so you cannot give them a different ARN).
+
+    When set:
+      - The forge_api and spark_driver IAM roles are NOT created by this module.
+      - Both forge-api and spark-driver SAs are annotated with this ARN.
+      - The role's trust policy must be updated to allow IRSA from the EKS
+        cluster's OIDC provider for system:serviceaccount:forge:forge-api and
+        system:serviceaccount:forge:spark-driver (see docs/deployment/reuse-existing-iam-role.md).
+
+    When empty (default): the module creates dedicated forge-api and spark-driver
+    IAM roles as normal.
+  EOT
+  type    = string
+  default = ""
+}
+
+variable "enable_legacy_forge_api_release" {
+  description = <<-EOT
+    Install the older direct forge-api Helm release from deploy/helm/forge-api.
+    Disable this when testing the newer forge-operator + ForgeCluster path so
+    Terraform only bootstraps the isolated EKS base and supporting addons.
+  EOT
+  type        = bool
+  default     = true
 }
 
 variable "tracing_enabled" {
@@ -123,6 +144,6 @@ variable "tracing_enabled" {
     Traces are exported to AWS X-Ray via OTLP/HTTP — no additional infrastructure needed.
     Disable to suppress all OTEL initialization on driver pods (zero overhead).
   EOT
-  type    = bool
-  default = true
+  type        = bool
+  default     = true
 }

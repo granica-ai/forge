@@ -1,0 +1,120 @@
+---
+# Spark History Server
+#
+# Reads Spark event logs from S3 and exposes the History Server UI on port 18080.
+# Allows post-mortem inspection of completed Spark jobs: stage/task timelines,
+# shuffle spill, executor OOM, GC time, skew, and task failure details.
+#
+# TKT-112: Part of the Forge observability roadmap (P0 priority).
+#
+# Prerequisites:
+#   - forge-api-rbac.yaml applied (spark-driver SA with IRSA must exist)
+#   - FORGE_HISTORY_BUCKET must be configured and the event log prefix must exist:
+#       aws s3api put-object --bucket <FORGE_HISTORY_BUCKET> --key spark-event-logs/
+#   - forge-api (in gp1-engine) must be deployed with FORGE_HISTORY_BUCKET set,
+#     which auto-derives FORGE_SPARK_EVENT_LOG_DIR = s3a://<bucket>/spark-event-logs/
+#     and injects spark.eventLog.enabled=true into every SparkApplication.
+#
+# Access (internal only):
+#   kubectl port-forward -n ${FORGE_NAMESPACE} svc/spark-history-server 18080:18080
+#   Then open: http://localhost:18080
+#
+# The SHS uses the spark-driver ServiceAccount for IRSA — same role that already
+# has s3:GetObject/ListBucket on the history bucket.
+#
+# Image: reuses crunch:TAG-spark which bundles all S3A + Hadoop AWS jars needed
+# for reading event logs from S3A. No extra image required.
+# Variables required before envsubst (same set as forge-api-deployment.yaml):
+#   FORGE_IMAGE_TAG   — release tag (e.g. v0.6.12-alpha or a commit SHA)
+#   DEPLOY_ACCOUNT    — AWS account ID owning the ECR registry (e.g. 763165855768)
+#   DEPLOY_REGION     — AWS region (e.g. us-west-2)
+#   FORGE_NAMESPACE   — K8s namespace
+#   FORGE_HISTORY_BUCKET — S3 bucket for event logs
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-history-server
+  namespace: ${FORGE_NAMESPACE}
+  labels:
+    app: spark-history-server
+    forge.granica.ai/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-history-server
+  template:
+    metadata:
+      labels:
+        app: spark-history-server
+        forge.granica.ai/component: observability
+    spec:
+      serviceAccountName: spark-driver
+      containers:
+        - name: spark-history-server
+          image: ${DEPLOY_ACCOUNT}.dkr.ecr.${DEPLOY_REGION}.amazonaws.com/crunch:${FORGE_IMAGE_TAG}-spark
+          imagePullPolicy: Always
+          command:
+            - /opt/spark/bin/spark-class
+            - org.apache.spark.deploy.history.HistoryServer
+          ports:
+            - containerPort: 18080
+              name: ui
+          env:
+            # Derived from FORGE_HISTORY_BUCKET by the deploy script or envsubst.
+            # Must match the SparkEventLogDir written by forge-api
+            # (s3a://<bucket>/spark-event-logs/).
+            - name: SPARK_HISTORY_OPTS
+              value: >-
+                -Dspark.history.fs.logDirectory=s3a://${FORGE_HISTORY_BUCKET}/spark-event-logs/
+                -Dspark.history.fs.update.interval=30s
+                -Dspark.history.retainedApplications=200
+                -Dspark.history.ui.maxApplications=200
+                -Dspark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+                -Dspark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.WebIdentityTokenCredentialsProvider
+          # SHS is read-only and lightweight; no persistent storage needed.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 18080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 18080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      # No nodeSelector — SHS is a lightweight read-only service and can run
+      # on any available node. Constraining to arm64 caused ECR pull failures
+      # on customer clusters where the arm64 system node only has access to the
+      # local account registry (the crunch image may live in a different account).
+
+---
+# ClusterIP service — SHS is an internal debugging tool.
+# Access via: kubectl port-forward -n <namespace> svc/spark-history-server 18080:18080
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-history-server
+  namespace: ${FORGE_NAMESPACE}
+  labels:
+    app: spark-history-server
+    forge.granica.ai/component: observability
+spec:
+  type: ClusterIP
+  selector:
+    app: spark-history-server
+  ports:
+    - name: ui
+      port: 18080
+      targetPort: 18080

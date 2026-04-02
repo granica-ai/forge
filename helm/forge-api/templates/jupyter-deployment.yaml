@@ -1,0 +1,95 @@
+{{- if .Values.workspace.jupyter.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.workspace.jupyter.serviceName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.workspace.jupyter.serviceName }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.workspace.jupyter.serviceName }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.workspace.jupyter.serviceName }}
+    spec:
+      serviceAccountName: {{ .Values.workspace.jupyter.serviceAccountName | default "default" }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: jupyter
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: {{ .Values.workspace.jupyter.image.repository }}:{{ .Values.workspace.jupyter.image.tag }}
+          imagePullPolicy: {{ .Values.workspace.jupyter.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.workspace.jupyter.service.port }}
+          env:
+            {{- range $k, $v := .Values.workspace.jupyter.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- $sparkRemote := .Values.workspace.sparkConnect.url | trim }}
+            {{- if $sparkRemote }}
+            - name: SPARK_REMOTE
+              value: {{ $sparkRemote | quote }}
+            {{- end }}
+            - name: JUPYTER_TOKEN
+              value: {{ .Values.workspace.jupyter.token | quote }}
+          command:
+            - start-notebook.py
+          args:
+            - --ServerApp.base_url=/jupyter/
+            - --ServerApp.root_dir={{ .Values.workspace.jupyter.storage.mountPath }}
+            - --IdentityProvider.token={{ .Values.workspace.jupyter.token }}
+          volumeMounts:
+            - name: workdir
+              mountPath: {{ .Values.workspace.jupyter.storage.mountPath }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.workspace.jupyter.resources | nindent 12 }}
+      volumes:
+        - name: workdir
+          {{- if and .Values.workspace.jupyter.storage.enabled .Values.workspace.jupyter.storage.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.workspace.jupyter.storage.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.workspace.jupyter.serviceName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.workspace.jupyter.serviceName }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  type: {{ .Values.workspace.jupyter.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ .Values.workspace.jupyter.serviceName }}
+  ports:
+    - name: http
+      port: {{ .Values.workspace.jupyter.service.port }}
+      targetPort: {{ .Values.workspace.jupyter.service.port }}
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,24 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: forge-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: forge-api
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+    {{- range $k, $v := .Values.serviceMonitor.labels }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      app: forge-api
+  endpoints:
+    - port: rest
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval | default "15s" | quote }}
+{{- end }}

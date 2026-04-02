@@ -15,9 +15,6 @@ spec:
     metadata:
       labels:
         app: forge-api
-        {{- if eq .Values.cloud "azure" }}
-        azure.workload.identity/use: "true"
-        {{- end }}
     spec:
       serviceAccountName: forge-api
       securityContext:
@@ -43,19 +40,36 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+            - name: FORGE_QUERY_UI_BACKEND
+              value: {{ .Values.workspace.activeBackend | quote }}
+            {{- $sparkConnectURL := .Values.workspace.sparkConnect.url | trim }}
+            {{- if or $sparkConnectURL .Values.workspace.sparkConnect.enabled }}
+            - name: FORGE_QUERY_UI_SPARK_CONNECT_URL
+              value: {{ default (printf "sc://%s:%v" .Values.workspace.sparkConnect.serviceName .Values.workspace.sparkConnect.port) $sparkConnectURL | quote }}
+            {{- end }}
+            {{- $jupyterURL := .Values.workspace.jupyter.url | trim }}
+            {{- if or $jupyterURL .Values.workspace.jupyter.enabled }}
+            - name: FORGE_QUERY_UI_JUPYTER_URL
+              value: {{ default (printf "http://%s:%v" .Values.workspace.jupyter.serviceName .Values.workspace.jupyter.service.port) $jupyterURL | quote }}
+              {{- if .Values.workspace.jupyter.token }}
+            - name: FORGE_QUERY_UI_JUPYTER_TOKEN
+              value: {{ .Values.workspace.jupyter.token | quote }}
+              {{- end }}
+            {{- end }}
+            {{- $kyuubiDSN := .Values.workspace.kyuubi.dsn | trim }}
+            {{- if or $kyuubiDSN .Values.workspace.kyuubi.enabled }}
+            - name: FORGE_QUERY_UI_KYUUBI_DSN
+              value: {{ default (printf "kyuubi://kyuubi:%v/default" .Values.workspace.kyuubi.service.thriftPort) $kyuubiDSN | quote }}
+            {{- end }}
             # Single image tag drives crunch:$TAG-spark and crunch:$TAG (TKT-46).
             - name: FORGE_IMAGE_TAG
               value: {{ .Values.forgeImageTag | quote }}
             # Expose cluster identity for GET /v1/system/info (TKT-J-013).
-            {{- if .Values.clusterName }}
-            {{- if eq .Values.cloud "azure" }}
-            - name: AKS_CLUSTER_NAME
-              value: {{ .Values.clusterName | quote }}
-            {{- else }}
             # AWS_ROLE_ARN and AWS_DEFAULT_REGION are injected by IRSA automatically.
+            # EKS_CLUSTER_NAME must be set via values.yaml clusterName field.
+            {{- if .Values.clusterName }}
             - name: EKS_CLUSTER_NAME
               value: {{ .Values.clusterName | quote }}
-            {{- end }}
             {{- end }}
           {{- if .Values.apiKeys.secretName }}
           # TF-004: mount API key secret so forge-api can authenticate requests

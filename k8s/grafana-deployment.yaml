@@ -21,7 +21,9 @@ data:
       - name: Prometheus
         type: prometheus
         uid: prometheus
-        url: http://prometheus:9090
+        # TKT-120: Grafana is in the forge namespace; Prometheus is in monitoring.
+        # Cross-namespace DNS requires the full FQDN — short hostname does not resolve.
+        url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
         access: proxy
         isDefault: true
         jsonData:

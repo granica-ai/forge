@@ -1,0 +1,37 @@
+# Example: QueryUI demo on an isolated single-tenant cluster.
+#
+# This variant uses dedicated buckets and IRSA roles per environment,
+# suitable for customer PoCs or isolated testing.
+apiVersion: forge.granica.ai/v1alpha1
+kind: ForgeCluster
+metadata:
+  name: queryui-isolated
+  namespace: forge-system
+spec:
+  version: "<release-tag>"
+  ecrRegistry: "<ecr-registry>"
+  mode: "poc"
+
+  dataBucket: "<data-bucket>"
+  systemBucket:
+    name: "<system-bucket>"
+    region: "us-west-2"
+
+  irsa:
+    forgeApiRoleArn: "<forge-api-role-arn>"
+    sparkDriverRoleArn: "<spark-driver-role-arn>"
+
+  queryUi:
+    activeBackend: "jupyter"
+    jupyter:
+      enabled: true
+      tokenSecretRef:
+        name: "forge-jupyter-auth"
+        key: "token"
+    sparkConnect:
+      enabled: true
+      sparkVersion: "4.1.1"
+      image:
+        repository: "<ecr-registry>/crunch"
+        tag: "<release-tag>-spark"
+        pullPolicy: "IfNotPresent"

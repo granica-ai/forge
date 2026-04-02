@@ -1,0 +1,19 @@
+{{- if .Values.workspace.sparkConnect.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.workspace.sparkConnect.serviceName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: spark-connect
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- toYaml .Values.workspace.sparkConnect.selector | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.workspace.sparkConnect.port }}
+      targetPort: {{ .Values.workspace.sparkConnect.port }}
+      protocol: TCP
+{{- end }}

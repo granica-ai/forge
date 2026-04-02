@@ -26,6 +26,14 @@ runners:
         image = "763165855768.dkr.ecr.us-west-2.amazonaws.com/ai-factory-ci-base:1.0"
         helper_image = "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:arm64-v18.9.0"
         service_account = "gitlab-runner"
+        # Heavy Rust/Go builds write large caches and artifacts; requests prevent
+        # overpacking too many build pods onto the same node.
+        ephemeral_storage_request = "8Gi"
+        ephemeral_storage_limit = "32Gi"
+        helper_ephemeral_storage_request = "1Gi"
+        helper_ephemeral_storage_limit = "2Gi"
+        service_ephemeral_storage_request = "1Gi"
+        service_ephemeral_storage_limit = "2Gi"
         [runners.kubernetes.pod_labels]
           "forge.granica.ai/ci" = "true"
         [runners.kubernetes.node_selector]

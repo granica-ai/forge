@@ -56,6 +56,11 @@ spec:
             # When empty, job history is disabled and only metrics/system table are written.
             - name: FORGE_HISTORY_BUCKET
               value: "${FORGE_HISTORY_BUCKET:-}"
+            # TKT-112: Spark event log directory for Spark History Server integration.
+            # When empty, auto-derived from FORGE_HISTORY_BUCKET as
+            # s3a://<bucket>/spark-event-logs/ — explicitly set to override.
+            - name: FORGE_SPARK_EVENT_LOG_DIR
+              value: "${FORGE_SPARK_EVENT_LOG_DIR:-}"
             - name: FORGE_DEFAULT_EXECUTORS
               value: "${FORGE_DEFAULT_EXECUTORS}"
             - name: FORGE_API_KEYS_FILE

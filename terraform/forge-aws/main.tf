@@ -48,6 +48,12 @@ locals {
   create_vpc = var.vpc_id == ""
   vpc_id     = local.create_vpc ? module.vpc[0].vpc_id : var.vpc_id
   subnet_ids = local.create_vpc ? module.vpc[0].private_subnets : var.subnet_ids
+
+  # When existing_irsa_role_arn is set, reuse it for both SAs and skip creating
+  # new IAM roles. Otherwise use the roles this module creates.
+  use_existing_role     = var.existing_irsa_role_arn != ""
+  forge_api_role_arn    = local.use_existing_role ? var.existing_irsa_role_arn : (length(aws_iam_role.forge_api) > 0 ? aws_iam_role.forge_api[0].arn : "")
+  spark_driver_role_arn = local.use_existing_role ? var.existing_irsa_role_arn : (length(aws_iam_role.spark_driver) > 0 ? aws_iam_role.spark_driver[0].arn : "")
 }
 
 # ── Optional VPC ───────────────────────────────────────────────────────────────
@@ -69,8 +75,8 @@ module "vpc" {
   enable_dns_hostnames = true
 
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb"      = "1"
-    "karpenter.sh/discovery"               = var.cluster_name
+    "kubernetes.io/role/internal-elb" = "1"
+    "karpenter.sh/discovery"          = var.cluster_name
   }
   public_subnet_tags = {
     "kubernetes.io/role/elb" = "1"
@@ -114,6 +120,18 @@ module "eks" {
       min_size       = 1
       max_size       = 4
       desired_size   = 1
+      # GitLab CI build pods run on the system pool and need more than the
+      # AMI-default 20 GiB root volume during concurrent Rust/Go builds.
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            delete_on_termination = true
+            volume_size           = 100
+            volume_type           = "gp3"
+          }
+        }
+      }
       labels = {
         "forge.granica.ai/pool" = "system"
       }
@@ -206,7 +224,7 @@ resource "aws_eks_access_policy_association" "deployer_admin" {
   principal_arn = data.aws_iam_session_context.current.issuer_arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope { type = "cluster" }
-  depends_on    = [aws_eks_access_entry.deployer]
+  depends_on = [aws_eks_access_entry.deployer]
 }
 
 # Karpenter node role — EC2 instances launched by Karpenter need an EKS access entry
@@ -222,8 +240,10 @@ resource "aws_eks_access_entry" "karpenter_node" {
 # ── IRSA Roles ─────────────────────────────────────────────────────────────────
 
 # forge-api IRSA — S3 read/write for discovery, history, metrics, and system tables (TF-003)
+# Skipped when var.existing_irsa_role_arn is set — the pre-existing role is used instead.
 resource "aws_iam_role" "forge_api" {
-  name = "${var.cluster_name}-forge-api"
+  count = local.use_existing_role ? 0 : 1
+  name  = "${var.cluster_name}-forge-api"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -243,8 +263,10 @@ resource "aws_iam_role" "forge_api" {
 }
 
 # spark-driver IRSA — scoped to the customer's S3 buckets only
+# Skipped when var.existing_irsa_role_arn is set — the pre-existing role is used instead.
 resource "aws_iam_role" "spark_driver" {
-  name = "${var.cluster_name}-spark-driver"
+  count = local.use_existing_role ? 0 : 1
+  name  = "${var.cluster_name}-spark-driver"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -253,7 +275,10 @@ resource "aws_iam_role" "spark_driver" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringLike = {
-          "${module.eks.oidc_provider}:sub" = "system:serviceaccount:forge*:spark-driver"
+          "${module.eks.oidc_provider}:sub" = [
+            "system:serviceaccount:forge*:spark-driver",
+            "system:serviceaccount:crunch:spark-driver",
+          ]
         }
         StringEquals = {
           "${module.eks.oidc_provider}:aud" = "sts.amazonaws.com"
@@ -291,9 +316,11 @@ locals {
 }
 
 # forge-api S3 policy: read/write for discovery, history JSONL, metrics bridge, system tables (TF-003)
+# Skipped when var.existing_irsa_role_arn is set.
 resource "aws_iam_role_policy" "forge_api_s3" {
-  name = "forge-api-s3"
-  role = aws_iam_role.forge_api.id
+  count = local.use_existing_role ? 0 : 1
+  name  = "forge-api-s3"
+  role  = aws_iam_role.forge_api[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -305,9 +332,11 @@ resource "aws_iam_role_policy" "forge_api_s3" {
 }
 
 # spark-driver S3 policy: read/write customer data (TF-003)
+# Skipped when var.existing_irsa_role_arn is set.
 resource "aws_iam_role_policy" "spark_s3" {
-  name = "spark-s3-access"
-  role = aws_iam_role.spark_driver.id
+  count = local.use_existing_role ? 0 : 1
+  name  = "spark-s3-access"
+  role  = aws_iam_role.spark_driver[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -319,13 +348,13 @@ resource "aws_iam_role_policy" "spark_s3" {
 }
 
 # spark-driver X-Ray policy: allows Connector to export OTLP traces to AWS X-Ray (RFC-0066).
-# Only created when var.tracing_enabled = true (default).
+# Only created when var.tracing_enabled = true (default) and not using a pre-existing role.
 # X-Ray is a native AWS service — no additional infrastructure needed.
 # Disable with: terraform apply -var="tracing_enabled=false"
 resource "aws_iam_role_policy" "spark_xray" {
-  count = var.tracing_enabled ? 1 : 0
+  count = (!local.use_existing_role && var.tracing_enabled) ? 1 : 0
   name  = "spark-xray-trace-write"
-  role  = aws_iam_role.spark_driver.id
+  role  = aws_iam_role.spark_driver[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -367,23 +396,23 @@ module "eks_blueprints_addons" {
         repository       = "https://kubeflow.github.io/spark-operator"
         chart            = "spark-operator"
         version          = "2.4.0"
-        namespace        = "crunch"  # deployed to crunch namespace on staging-ai-dev
+        namespace        = "crunch" # deployed to crunch namespace on staging-ai-dev
         create_namespace = true
         set = [
-          { name = "webhook.enable",          value = "true" },
+          { name = "webhook.enable", value = "true" },
           # Watch all namespaces so CI pipelines can deploy to any namespace
           # (e.g. forge-dev, forge-dev-marc) without reconfiguring the operator.
-          { name = "spark.jobNamespaces[0]",  value = "" },
+          { name = "spark.jobNamespaces[0]", value = "" },
           # TKT-078: fabric8 Vert.x in Spark 3.5.x "server null" on EKS.
           # Admission webhooks add ~10s to pod creation, racing with fabric8's default
           # 10s request timeout. Disabling kubeconfig detection forces in-cluster auth.
-          { name = "controller.env[0].name",  value = "JAVA_TOOL_OPTIONS" },
+          { name = "controller.env[0].name", value = "JAVA_TOOL_OPTIONS" },
           { name = "controller.env[0].value", value = "-Dkubernetes.auth.tryKubeConfig=false" },
           # HTTP2_DISABLE=true must be applied via kubectl set env post-deploy (not via Helm set{})
           # because Helm renders bare "true" as a YAML bool which K8s rejects on env.value (string field).
           # See: deploy/k8s/staging-ai-dev-post-deploy.sh for the kubectl set env command.
           # Explicit K8s master URL for spark-submit (belt-and-suspenders with env vars above)
-          { name = "spark.sparkConf[0].name",  value = "spark.kubernetes.master" },
+          { name = "spark.sparkConf[0].name", value = "spark.kubernetes.master" },
           { name = "spark.sparkConf[0].value", value = "k8s://https://kubernetes.default.svc:443" }
         ]
       }
@@ -475,9 +504,9 @@ resource "aws_iam_role_policy" "ci_runner_s3" {
         Resource = module.eks.cluster_arn
       },
       {
-        Sid      = "ECRRead"
-        Effect   = "Allow"
-        Action   = [
+        Sid    = "ECRRead"
+        Effect = "Allow"
+        Action = [
           "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage",
           "ecr:BatchCheckLayerAvailability", "ecr:GetAuthorizationToken",
           "ecr:DescribeRepositories", "ecr:ListImages", "ecr:DescribeImages"
@@ -501,7 +530,7 @@ resource "aws_eks_access_policy_association" "ci_runner_admin" {
   principal_arn = aws_iam_role.ci_runner[0].arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope { type = "cluster" }
-  depends_on    = [aws_eks_access_entry.ci_runner]
+  depends_on = [aws_eks_access_entry.ci_runner]
 }
 
 # ── Karpenter NodePools ────────────────────────────────────────────────────────
@@ -510,7 +539,7 @@ resource "aws_eks_access_policy_association" "ci_runner_admin" {
 resource "null_resource" "karpenter_nodepools" {
   count      = var.enable_karpenter ? 1 : 0
   depends_on = [module.eks_blueprints_addons]
-  triggers = { cluster_name = var.cluster_name }
+  triggers   = { cluster_name = var.cluster_name }
   provisioner "local-exec" {
     command = <<-EOF
       set -e
@@ -551,7 +580,7 @@ resource "null_resource" "karpenter_nodepools" {
 # The resource does NOT delete any SGs — only removes the single K8s tag.
 resource "null_resource" "cleanup_node_sg_tags" {
   depends_on = [module.eks]
-  triggers = { cluster_name = var.cluster_name, region = var.region }
+  triggers   = { cluster_name = var.cluster_name, region = var.region }
 
   provisioner "local-exec" {
     when        = destroy
@@ -614,9 +643,9 @@ resource "null_resource" "cleanup_node_sg_tags" {
 
 # ── ForgJob CRD (always applied, independent of Karpenter) ──────────────────
 resource "null_resource" "forgejob_crd" {
-  count      = var.enable_karpenter ? 0 : 1  # only when Karpenter is disabled (Karpenter path applies it above)
+  count      = var.enable_karpenter ? 0 : 1 # only when Karpenter is disabled (Karpenter path applies it above)
   depends_on = [module.eks_blueprints_addons]
-  triggers = { cluster_name = var.cluster_name }
+  triggers   = { cluster_name = var.cluster_name }
   provisioner "local-exec" {
     command = <<-EOF
       set -e
@@ -628,12 +657,13 @@ resource "null_resource" "forgejob_crd" {
 
 # ── forge-api Helm Release ─────────────────────────────────────────────────────
 resource "helm_release" "forge_api" {
-  depends_on = [module.eks_blueprints_addons]
-  name       = "forge-api"
-  chart      = "${path.module}/../../helm/forge-api"
-  namespace  = "forge"
+  count            = var.enable_legacy_forge_api_release ? 1 : 0
+  depends_on       = [module.eks_blueprints_addons]
+  name             = "forge-api"
+  chart            = "${path.module}/../../helm/forge-api"
+  namespace        = "forge"
   create_namespace = true
-  wait       = false
+  wait             = false
 
   set {
     name  = "image.repository"
@@ -651,24 +681,28 @@ resource "helm_release" "forge_api" {
     name  = "env.FORGE_CRUNCH_IMAGE"
     value = var.crunch_image
   }
-  set {
-    name  = "nodeSelector.kubernetes\\.io/arch"
-    value = var.arch
-  }
 }
 
 # ── IRSA Annotations ──────────────────────────────────────────────────────────
 # Applied after forge-api Helm release creates the service accounts.
+# Uses local.forge_api_role_arn / local.spark_driver_role_arn which resolve to
+# either the pre-existing role (var.existing_irsa_role_arn) or the roles created
+# above, depending on which path is active.
 resource "null_resource" "irsa_annotations" {
+  count      = var.enable_legacy_forge_api_release ? 1 : 0
   depends_on = [helm_release.forge_api]
-  triggers = { cluster_name = var.cluster_name }
+  triggers = {
+    cluster_name     = var.cluster_name
+    forge_api_arn    = local.forge_api_role_arn
+    spark_driver_arn = local.spark_driver_role_arn
+  }
   provisioner "local-exec" {
     command = <<-EOF
       set -e
       kubectl annotate sa forge-api -n forge \
-        eks.amazonaws.com/role-arn=${aws_iam_role.forge_api.arn} --overwrite
+        eks.amazonaws.com/role-arn=${local.forge_api_role_arn} --overwrite
       kubectl annotate sa spark-driver -n forge \
-        eks.amazonaws.com/role-arn=${aws_iam_role.spark_driver.arn} --overwrite
+        eks.amazonaws.com/role-arn=${local.spark_driver_role_arn} --overwrite
     EOF
   }
 }

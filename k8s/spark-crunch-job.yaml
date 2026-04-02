@@ -41,7 +41,8 @@ spec:
   sparkConf:
     spark.kubernetes.namespace: ${NAMESPACE:-crunch}
     spark.kubernetes.executor.deleteOnTermination: "true"
-    spark.sql.extensions: "io.delta.sql.DeltaSparkSessionExtension"
+    # RFC-0105: Catalyst on by default. Per-job disable: --conf spark.granica.catalyst.enabled=false
+    spark.sql.extensions: "io.delta.sql.DeltaSparkSessionExtension,com.granica.catalyst.GranicaCatalystExtension"
     spark.sql.catalog.spark_catalog: "org.apache.spark.sql.delta.catalog.DeltaCatalog"
     spark.jars: "local:///opt/spark/jars/crunch-spark-assembly-0.1.0.jar"
     spark.executor.extraClassPath: "/opt/spark/jars/crunch-spark-assembly-0.1.0.jar"

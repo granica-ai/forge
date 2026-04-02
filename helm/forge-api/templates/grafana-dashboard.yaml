@@ -1,0 +1,95 @@
+{{- if .Values.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forge-jobs-dashboard
+  namespace: {{ .Values.grafanaDashboard.namespace | default "monitoring" }}
+  labels:
+    grafana_dashboard: "1"
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+data:
+  forge-jobs.json: |
+    {
+      "id": null,
+      "uid": "forge-jobs-v1",
+      "title": "Forge Jobs",
+      "tags": ["forge"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "10s",
+      "time": {"from": "now-1h", "to": "now"},
+      "panels": [
+        {
+          "id": 1, "type": "stat", "title": "Active Jobs",
+          "gridPos": {"x":0,"y":0,"w":4,"h":4},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [{"expr":"forge_active_jobs","legendFormat":"active","refId":"A"}],
+          "options": {"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"background","graphMode":"none"},
+          "fieldConfig": {"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":3},{"color":"red","value":5}]},"mappings":[]}}
+        },
+        {
+          "id": 2, "type": "stat", "title": "Queue Depth",
+          "gridPos": {"x":4,"y":0,"w":4,"h":4},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [{"expr":"forge_queue_depth","legendFormat":"queued","refId":"A"}],
+          "options": {"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"background","graphMode":"none"},
+          "fieldConfig": {"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":10},{"color":"red","value":50}]},"mappings":[]}}
+        },
+        {
+          "id": 3, "type": "stat", "title": "Jobs Completed (1h)",
+          "gridPos": {"x":8,"y":0,"w":4,"h":4},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [{"expr":"increase(forge_jobs_terminal_total[1h])","legendFormat":"{{ "{{state}}" }}","refId":"A"}],
+          "options": {"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"background","graphMode":"none"},
+          "fieldConfig": {"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"blue","value":null}]},"mappings":[]}}
+        },
+        {
+          "id": 4, "type": "gauge", "title": "DRR p50 (last 1h)",
+          "gridPos": {"x":12,"y":0,"w":6,"h":4},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [{"expr":"histogram_quantile(0.5, rate(forge_job_drr_ratio_bucket[1h]))","legendFormat":"DRR p50","refId":"A"}],
+          "options": {"reduceOptions":{"calcs":["lastNotNull"]},"minVizWidth":75,"minVizHeight":75},
+          "fieldConfig": {"defaults":{"min":0,"max":1,"unit":"percentunit","thresholds":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"yellow","value":0.2},{"color":"green","value":0.3}]},"mappings":[]}}
+        },
+        {
+          "id": 5, "type": "gauge", "title": "DRR p90 (last 1h)",
+          "gridPos": {"x":18,"y":0,"w":6,"h":4},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [{"expr":"histogram_quantile(0.9, rate(forge_job_drr_ratio_bucket[1h]))","legendFormat":"DRR p90","refId":"A"}],
+          "options": {"reduceOptions":{"calcs":["lastNotNull"]},"minVizWidth":75,"minVizHeight":75},
+          "fieldConfig": {"defaults":{"min":0,"max":1,"unit":"percentunit","thresholds":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"yellow","value":0.25},{"color":"green","value":0.35}]},"mappings":[]}}
+        },
+        {
+          "id": 6, "type": "timeseries", "title": "Bytes In vs Bytes Out",
+          "gridPos": {"x":0,"y":4,"w":12,"h":8},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [
+            {"expr":"rate(forge_job_input_bytes_total[5m])","legendFormat":"Bytes In","refId":"A"},
+            {"expr":"rate(forge_job_output_bytes_total[5m])","legendFormat":"Bytes Out","refId":"B"}
+          ],
+          "fieldConfig": {"defaults":{"unit":"Bps","custom":{"lineWidth":2}}}
+        },
+        {
+          "id": 7, "type": "timeseries", "title": "Job Throughput (MB/s)",
+          "gridPos": {"x":12,"y":4,"w":12,"h":8},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [{"expr":"rate(forge_job_input_bytes_total[5m]) / 1048576","legendFormat":"MB/s in","refId":"A"}],
+          "fieldConfig": {"defaults":{"unit":"MBs","custom":{"lineWidth":2}}}
+        },
+        {
+          "id": 8, "type": "timeseries", "title": "API Request Rate (by path)",
+          "gridPos": {"x":0,"y":12,"w":12,"h":8},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [{"expr":"rate(forge_api_request_total[1m])","legendFormat":"{{ "{{path}} {{status_code}}" }}","refId":"A"}],
+          "fieldConfig": {"defaults":{"unit":"reqps","custom":{"lineWidth":1}}}
+        },
+        {
+          "id": 9, "type": "timeseries", "title": "API Latency p99 (by path)",
+          "gridPos": {"x":12,"y":12,"w":12,"h":8},
+          "datasource": {"type":"prometheus","uid":"prometheus"},
+          "targets": [{"expr":"histogram_quantile(0.99, rate(forge_api_request_duration_seconds_bucket[5m]))","legendFormat":"p99 {{ "{{path}}" }}","refId":"A"}],
+          "fieldConfig": {"defaults":{"unit":"s","custom":{"lineWidth":1}}}
+        }
+      ]
+    }
+{{- end }}

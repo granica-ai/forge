@@ -1,6 +1,7 @@
 apiVersion: v2
 name: forge-api
-description: Forge control plane — Spark REST Submission API, job queue, ForgeJob CRD management
+description: "[DEPRECATED] Forge control plane — use operator/charts/forge-api/ instead. Kept for backwards compatibility."
+deprecated: true
 type: application
 version: 0.2.0
 appVersion: "0.6.5-beta"

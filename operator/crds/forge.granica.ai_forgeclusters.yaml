@@ -170,18 +170,6 @@ spec:
                           More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                         type: object
                     type: object
-                  serviceType:
-                    default: LoadBalancer
-                    description: |-
-                      ServiceType controls the Kubernetes Service type for the forge-api Service.
-                      Defaults to LoadBalancer for external access.
-                      Use ClusterIP for internal-only deployments (e.g. behind an Ingress).
-                      TKT-105: must be set here (not as a manual kubectl patch) so upgrades do not revert it.
-                    enum:
-                    - ClusterIP
-                    - NodePort
-                    - LoadBalancer
-                    type: string
                   tolerations:
                     description: Tolerations for forge-api pods.
                     items:
@@ -300,6 +288,137 @@ spec:
                 items:
                   type: string
                 type: array
+              queryUi:
+                description: |-
+                  QueryUI configures the interactive query and notebook surfaces that
+                  forge-api advertises to users.
+                properties:
+                  activeBackend:
+                    description: |-
+                      ActiveBackend selects which interactive path forge-api should advertise as
+                      the primary /console/sql surface.
+                    enum:
+                    - jupyter
+                    - spark_connect
+                    - kyuubi
+                    type: string
+                  demoTablePath:
+                    description: DemoTablePath is the dataset path shown in the worksheet
+                      by default.
+                    type: string
+                  jupyter:
+                    description: Jupyter configures the notebook UI surface exposed
+                      by forge-api.
+                    properties:
+                      enabled:
+                        description: Enabled indicates the endpoint is expected to
+                          exist in the deployment.
+                        type: boolean
+                      tokenSecretRef:
+                        description: |-
+                          TokenSecretRef points at the Secret containing the Jupyter auth token.
+                          The operator passes this through to forge-api without storing the token in
+                          the ForgeCluster spec itself.
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      url:
+                        description: URL is the endpoint forge-api should advertise
+                          to clients.
+                        type: string
+                    type: object
+                  kyuubi:
+                    description: Kyuubi configures the optional SQL gateway layer
+                      for external clients.
+                    properties:
+                      dsn:
+                        description: DSN is the gateway endpoint forge-api should
+                          advertise to clients.
+                        type: string
+                      enabled:
+                        description: Enabled indicates the SQL gateway is expected
+                          to exist in the deployment.
+                        type: boolean
+                    type: object
+                  sparkConnect:
+                    description: SparkConnect configures the Spark Connect access/runtime
+                      layer used by the notebook UI.
+                    properties:
+                      enabled:
+                        description: Enabled indicates the endpoint is expected to
+                          exist in the deployment.
+                        type: boolean
+                      executor:
+                        description: Executor configures the default Spark Connect
+                          executor pool.
+                        properties:
+                          cores:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          instances:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          memory:
+                            type: string
+                        type: object
+                      hadoopConf:
+                        additionalProperties:
+                          type: string
+                        description: HadoopConf carries filesystem and metastore settings.
+                        type: object
+                      image:
+                        description: Image overrides the Spark Connect runtime image.
+                        properties:
+                          pullPolicy:
+                            enum:
+                            - Always
+                            - IfNotPresent
+                            - Never
+                            type: string
+                          repository:
+                            type: string
+                          tag:
+                            type: string
+                        type: object
+                      server:
+                        description: Server configures the Spark Connect server pod
+                          size.
+                        properties:
+                          cores:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          memory:
+                            type: string
+                        type: object
+                      serviceAccountName:
+                        description: ServiceAccountName is the service account used
+                          by the Spark Connect server pod.
+                        type: string
+                      sparkConf:
+                        additionalProperties:
+                          type: string
+                        description: SparkConf carries Spark runtime config such as
+                          catalog definitions.
+                        type: object
+                      sparkVersion:
+                        description: SparkVersion is the Spark runtime version used
+                          by the SparkConnect CR.
+                        type: string
+                      url:
+                        description: URL is the endpoint forge-api should advertise
+                          to clients.
+                        type: string
+                    type: object
+                type: object
               sparkOperator:
                 description: SparkOperator configuration overrides.
                 properties:
