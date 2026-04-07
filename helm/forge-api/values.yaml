@@ -44,10 +44,9 @@ env:
   # Mercedes demo walkthrough data root.
   # Override per-deployment with the S3 path to demo data.
   FORGE_QUERY_UI_DEMO_TABLE_PATH: ""
-  # RFC-0105: Catalyst SQL extension default. forge-api reads this and injects it into
-  # SparkApplication driver env so ForgeOptimizer picks it up at session creation.
-  # Set to "false" to disable Catalyst cluster-wide. Per-job: --conf spark.granica.catalyst.enabled=false
-  GRANICA_CATALYST_ENABLED: "true"
+  # Catalyst on hold (2026-04-06): benchmarks have caching artifacts, results misleading.
+  # Set to "true" to re-enable when benchmark methodology is corrected.
+  GRANICA_CATALYST_ENABLED: "false"
 
 # TF-004: API key secret mount. Set secretName to enable auth.
 # The secret must have a key named "keys" containing one API key per line.

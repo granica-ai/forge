@@ -41,8 +41,9 @@ spec:
   sparkConf:
     spark.kubernetes.namespace: ${NAMESPACE:-crunch}
     spark.kubernetes.executor.deleteOnTermination: "true"
-    # RFC-0105: Catalyst on by default. Per-job disable: --conf spark.granica.catalyst.enabled=false
-    spark.sql.extensions: "io.delta.sql.DeltaSparkSessionExtension,com.granica.catalyst.GranicaCatalystExtension"
+    # Catalyst on hold (2026-04-06): benchmarks have caching artifacts, results misleading.
+    # To re-enable: add com.granica.catalyst.GranicaCatalystExtension to spark.sql.extensions
+    spark.sql.extensions: "io.delta.sql.DeltaSparkSessionExtension"
     spark.sql.catalog.spark_catalog: "org.apache.spark.sql.delta.catalog.DeltaCatalog"
     spark.jars: "local:///opt/spark/jars/crunch-spark-assembly-0.1.0.jar"
     spark.executor.extraClassPath: "/opt/spark/jars/crunch-spark-assembly-0.1.0.jar"
