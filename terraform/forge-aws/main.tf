@@ -67,8 +67,10 @@ module "vpc" {
   cidr = "10.0.0.0/16"
   azs  = ["${var.region}a", "${var.region}b", "${var.region}c"]
 
-  private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+  # /20 subnets = 4094 IPs each. Required for Karpenter scale (500+ nodes × ~50 pods/node).
+  # /24 (254 IPs) is too small — causes "failed to assign IP" with VPC CNI prefix delegation.
+  private_subnets = ["10.0.0.0/20", "10.0.16.0/20", "10.0.32.0/20"]
+  public_subnets  = ["10.0.128.0/24", "10.0.129.0/24", "10.0.130.0/24"]
 
   enable_nat_gateway   = true
   single_nat_gateway   = true
@@ -101,80 +103,79 @@ module "eks" {
   cluster_addons = {
     coredns    = { most_recent = true }
     kube-proxy = { most_recent = true }
-    vpc-cni    = { most_recent = true }
+    vpc-cni = {
+      most_recent = true
+      configuration_values = jsonencode({
+        env = {
+          # Keep 5 warm IPs per node instead of pre-allocating full ENI worth.
+          # Matches Krypton configuration (vpc-cni-warm-ip.tf).
+          WARM_IP_TARGET           = "5"
+          # Prefix delegation: each ENI slot gets a /28 prefix (16 IPs) instead of 1.
+          # Combined with /20 subnets, supports 500+ nodes with high pod density.
+          ENABLE_PREFIX_DELEGATION = "true"
+          WARM_PREFIX_TARGET       = "1"
+        }
+      })
+    }
     aws-ebs-csi-driver = {
       most_recent              = true
       service_account_role_arn = module.ebs_csi_irsa.iam_role_arn
     }
   }
 
-  # Managed node groups — matches deployed state on staging-ai-dev.
-  # When Karpenter is installed, spark-driver/spark-executor/evaluator
-  # migrate to Karpenter NodePools (see deploy/karpenter/nodepools.yaml).
-  # The system group stays as a managed node group permanently.
-  eks_managed_node_groups = {
-    system = {
-      instance_types = ["m8g.large"]
-      ami_type       = "AL2023_ARM_64_STANDARD"
-      capacity_type  = "ON_DEMAND"
-      min_size       = 1
-      max_size       = 4
-      desired_size   = 1
-      # GitLab CI build pods run on the system pool and need more than the
-      # AMI-default 20 GiB root volume during concurrent Rust/Go builds.
-      block_device_mappings = {
-        xvda = {
-          device_name = "/dev/xvda"
-          ebs = {
-            delete_on_termination = true
-            volume_size           = 100
-            volume_type           = "gp3"
+  # Node groups: 2 pools — granica-on-demand + granica-on-spot.
+  # With Karpenter (default): only the system MNG exists; Karpenter manages workload nodes.
+  # Without Karpenter: system MNG + granica-on-spot MNG for executors/batch.
+  eks_managed_node_groups = merge(
+    {
+      # System pool — always present. Runs Karpenter, forge-api, spark-operator, monitoring.
+      # Karpenter can't manage the nodes it runs on, so this stays as a managed node group.
+      # Label is "system" (not granica-on-demand) so workload pods don't land here.
+      system = {
+        instance_types = var.arch == "arm64" ? ["m8g.large"] : ["m7i.large", "m6i.large"]
+        ami_type       = var.arch == "arm64" ? "AL2023_ARM_64_STANDARD" : "AL2023_x86_64_STANDARD"
+        capacity_type  = "ON_DEMAND"
+        min_size       = 1
+        max_size       = 1
+        desired_size   = 1
+        block_device_mappings = {
+          xvda = {
+            device_name = "/dev/xvda"
+            ebs = {
+              delete_on_termination = true
+              volume_size           = 100
+              volume_type           = "gp3"
+            }
           }
         }
+        labels = {
+          "nodeUse" = "main"
+        }
       }
-      labels = {
-        "forge.granica.ai/pool" = "system"
-      }
-    }
-
-    spark-driver = {
-      instance_types = ["m8g.xlarge"]
-      ami_type       = "AL2023_ARM_64_STANDARD"
-      capacity_type  = "ON_DEMAND"
-      min_size       = 0
-      max_size       = 4
-      desired_size   = 2
-      labels = {
-        "forge.granica.ai/pool" = "spark-driver"
-      }
-    }
-
-    # Multi-instance-type for Spot diversity — avoids capacity failure when
-    # a single instance type is unavailable. 5 types across m/c/r families.
-    spark-executor = {
-      instance_types = ["m8g.2xlarge", "c8g.2xlarge", "r8g.2xlarge", "m8g.4xlarge", "c8g.4xlarge"]
-      ami_type       = "AL2023_ARM_64_STANDARD"
-      capacity_type  = "SPOT"
-      min_size       = 0
-      max_size       = 8
-      desired_size   = 0
-      labels = {
-        "forge.granica.ai/pool" = "spark-executor"
+    },
+    # Spot pool — only when Karpenter is disabled (fallback to ASG-managed scaling).
+    var.enable_karpenter ? {} : {
+      granica-on-spot = {
+        instance_types = var.arch == "arm64" ? [
+          "m8g.4xlarge", "m8g.8xlarge", "m7g.4xlarge", "m7g.8xlarge",
+          "c8g.4xlarge", "c8g.8xlarge", "c7g.4xlarge", "c7g.8xlarge",
+          "r8g.4xlarge", "r8g.8xlarge", "r7g.4xlarge", "r7g.8xlarge",
+        ] : [
+          "m8i.4xlarge", "m8i.8xlarge", "m7i.4xlarge", "m7i.8xlarge",
+          "c7i.4xlarge", "c7i.8xlarge", "c6i.4xlarge", "c6i.8xlarge",
+          "r7i.4xlarge", "r7i.8xlarge", "r6i.4xlarge", "r6i.8xlarge",
+        ]
+        ami_type      = var.arch == "arm64" ? "AL2023_ARM_64_STANDARD" : "AL2023_x86_64_STANDARD"
+        capacity_type = "SPOT"
+        min_size      = 0
+        max_size      = 100
+        desired_size  = 0
+        labels = {
+          "nodeUse" = "granica-on-spot"
+        }
       }
     }
-
-    evaluator = {
-      instance_types = ["m8g.2xlarge"]
-      ami_type       = "AL2023_ARM_64_STANDARD"
-      capacity_type  = "ON_DEMAND"
-      min_size       = 0
-      max_size       = 2
-      desired_size   = 0
-      labels = {
-        "forge.granica.ai/pool" = "evaluator"
-      }
-    }
-  }
+  )
 
   # Karpenter needs permissions on the cluster.
   node_security_group_tags = {
@@ -554,9 +555,10 @@ resource "null_resource" "karpenter_nodepools" {
         echo "  attempt $i/30..."
         sleep 5
       done
-      # Substitute cluster name and Karpenter instance profile into the manifest.
+      # Substitute cluster name, instance profile, and arch into the manifest.
       export CLUSTER_NAME="${var.cluster_name}"
       export KARPENTER_NODE_INSTANCE_PROFILE="${module.eks_blueprints_addons.karpenter.node_instance_profile_name}"
+      export ARCH="${var.arch}"
       envsubst < ${path.module}/../../karpenter/nodepools.yaml | kubectl apply -f -
       kubectl apply -f ${path.module}/../../k8s/forgejob-crd.yaml
     EOF
@@ -680,6 +682,20 @@ resource "helm_release" "forge_api" {
   set {
     name  = "env.FORGE_CRUNCH_IMAGE"
     value = var.crunch_image
+  }
+  # Node scheduling: drivers on granica-on-demand, executors on granica-on-spot.
+  set {
+    name  = "env.FORGE_NODE_SELECTOR"
+    value = "{\"nodeUse\":\"granica-on-demand\"}"
+  }
+  set {
+    name  = "env.FORGE_EXECUTOR_NODE_SELECTOR"
+    value = "{\"nodeUse\":\"granica-on-spot\"}"
+  }
+  # forgeImageTag drives spark/crunch image derivation
+  set {
+    name  = "forgeImageTag"
+    value = try(split(":", var.spark_image)[1], "latest")
   }
 }
 

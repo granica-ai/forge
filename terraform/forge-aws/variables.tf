@@ -93,10 +93,20 @@ variable "ci_s3_buckets" {
   default     = []
 }
 
+variable "arch" {
+  description = "CPU architecture for node groups and Karpenter NodePools: arm64 (Graviton) or amd64 (Intel/AMD)."
+  type        = string
+  default     = "arm64"
+  validation {
+    condition     = contains(["arm64", "amd64"], var.arch)
+    error_message = "arch must be 'arm64' or 'amd64'."
+  }
+}
+
 variable "enable_karpenter" {
-  description = "Install Karpenter and apply NodePool manifests. Disable (default) when using managed node groups only."
+  description = "Install Karpenter and apply NodePool manifests for auto-scaling with granica-on-demand and granica-on-spot NodePools."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_yunikorn" {

@@ -17,6 +17,10 @@ spec:
         app: forge-api
     spec:
       serviceAccountName: forge-api
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -39,6 +43,22 @@ spec:
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}
+            {{- end }}
+            {{- /* Auto-derive history/metrics/system-table URIs from dataBucket when env vars are empty.
+                 K8s uses last env entry when duplicates exist, so these override the empty "" from the range loop. */ -}}
+            {{- if .Values.dataBucket }}
+            {{- if not (index .Values.env "FORGE_HISTORY_BUCKET") }}
+            - name: FORGE_HISTORY_BUCKET
+              value: {{ .Values.dataBucket | quote }}
+            {{- end }}
+            {{- if not (index .Values.env "FORGE_METRICS_BASE_URI") }}
+            - name: FORGE_METRICS_BASE_URI
+              value: {{ printf "%s/metrics" .Values.dataBucket | quote }}
+            {{- end }}
+            {{- if not (index .Values.env "FORGE_SYSTEM_TABLE_URI") }}
+            - name: FORGE_SYSTEM_TABLE_URI
+              value: {{ printf "%s/system-tables" .Values.dataBucket | quote }}
+            {{- end }}
             {{- end }}
             - name: FORGE_QUERY_UI_BACKEND
               value: {{ .Values.workspace.activeBackend | quote }}

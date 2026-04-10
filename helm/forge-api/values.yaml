@@ -9,10 +9,26 @@ replicaCount: 1
 # Set this to the EKS cluster name when deploying (e.g. customer-ai-forge, project-n-bigabid-c36b).
 clusterName: ""
 
+# dataBucket: S3/GCS bucket for Forge system data (history, metrics, system tables).
+# IMPORTANT: If this is set and FORGE_HISTORY_BUCKET / FORGE_METRICS_BASE_URI are empty
+# in the env: map below, the deployment template auto-derives them:
+#   FORGE_HISTORY_BUCKET    = <dataBucket>
+#   FORGE_METRICS_BASE_URI  = <dataBucket>/metrics
+#   FORGE_SYSTEM_TABLE_URI  = <dataBucket>/system-tables
+# If the explicit env vars are also set, they take precedence.
+# Examples: "s3://my-forge-data", "gs://my-gcp-forge-data"
+dataBucket: ""
+
 image:
   repository: 763165855768.dkr.ecr.us-west-2.amazonaws.com/forge-api
   tag: v0.6.5-beta
   pullPolicy: Always
+
+# Cross-account image pull (e.g. images in account 763, cluster in customer account).
+# Create docker-registry secret with ECR token, then reference here.
+imagePullSecrets: []
+# imagePullSecrets:
+#   - name: ecr-pull-secret
 
 # Single image tag drives all Forge images (TKT-46 fix).
 # forge-api derives crunch:$TAG-spark and crunch:$TAG from FORGE_IMAGE_TAG.
@@ -47,6 +63,10 @@ env:
   # Catalyst on hold (2026-04-06): benchmarks have caching artifacts, results misleading.
   # Set to "true" to re-enable when benchmark methodology is corrected.
   GRANICA_CATALYST_ENABLED: "false"
+  # Node scheduling: drivers on granica-on-demand, executors on granica-on-spot.
+  # JSON maps passed to SparkApplication nodeSelector.
+  FORGE_NODE_SELECTOR: '{"nodeUse":"granica-on-demand"}'
+  FORGE_EXECUTOR_NODE_SELECTOR: '{"nodeUse":"granica-on-spot"}'
 
 # TF-004: API key secret mount. Set secretName to enable auth.
 # The secret must have a key named "keys" containing one API key per line.
@@ -94,7 +114,7 @@ grafanaDashboard:
   namespace: monitoring
 
 nodeSelector:
-  kubernetes.io/arch: arm64
+  nodeUse: main
 
 tolerations:
   - key: kubernetes.io/arch
