@@ -85,6 +85,23 @@ module "vpc" {
   }
 }
 
+# ── S3 VPC Gateway Endpoint ────────────────────────────────────────────────────
+# Free. Routes S3 traffic through AWS backbone instead of the NAT gateway.
+# Krypton (Superman's infra) always had this via vpc module v2 `enable_s3_endpoint = true`.
+# vpc module v5 removed that flag — endpoints must now be separate resources.
+# Without this, every S3 read/write pays $0.045/GB NAT processing tax:
+# a 1.9 TB crunch generates ~5.6 TB of S3 traffic = ~$250 avoidable NAT cost per run.
+# Only created when this module creates the VPC; bring-your-own-VPC deployments
+# must add this endpoint to their existing VPC separately.
+resource "aws_vpc_endpoint" "s3" {
+  count             = local.create_vpc ? 1 : 0
+  vpc_id            = local.vpc_id
+  service_name      = "com.amazonaws.${var.region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = module.vpc[0].private_route_table_ids
+  depends_on        = [module.vpc]
+}
+
 # ── EKS Cluster ────────────────────────────────────────────────────────────────
 
 module "eks" {
