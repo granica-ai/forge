@@ -426,7 +426,7 @@ These are not bundled in the Forge chart to avoid version conflicts with existin
 ### Clone the Forge repo
 
 ```bash
-git clone --depth 1 https://github.com/granica-ai/forge.git ~/forge
+git clone --depth 1 --branch v0.0.0-alpha https://github.com/granica-ai/forge.git ~/forge
 ```
 
 ### Install Spark Operator
@@ -490,13 +490,13 @@ helm install forge-api ~/forge/helm/forge-api \
   --set cloud=azure \
   --set "nodeSelector.kubernetes\.io/arch=amd64" \
   --set image.repository=${ACR_NAME}.azurecr.io/forge-api \
-  --set image.tag=v0.7.4-alpha-azure \
+  --set image.tag=v0.0.0-alpha \
   --set "imagePullSecrets[0].name=forge-pull-secret" \
   --set env.FORGE_CLOUD_PROVIDER=azure \
   --set env.AZURE_STORAGE_ACCOUNT=$STORAGE_ACCOUNT \
   --set env.AZURE_SPARK_CLIENT_ID=$SPARK_DRIVER_CLIENT_ID \
-  --set env.FORGE_SPARK_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.7.4-alpha-azure-spark \
-  --set env.FORGE_CRUNCH_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.7.4-alpha-azure \
+  --set env.FORGE_SPARK_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.0.0-alpha-spark \
+  --set env.FORGE_CRUNCH_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.0.0-alpha \
   --set env.FORGE_DEFAULT_APP_RESOURCE="local:///opt/spark/jars/crunch-spark-assembly-0.7.0.jar" \
   --set env.FORGE_RECIPE_TABLE_URI="abfss://system@${STORAGE_ACCOUNT}.dfs.core.windows.net/forge-system/recipes" \
   --set env.FORGE_EXECUTOR_NODE_SELECTOR='\{"nodeUse":"granica-on-spot"\}' \
