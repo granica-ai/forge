@@ -124,13 +124,13 @@ module "eks" {
       most_recent = true
       configuration_values = jsonencode({
         env = {
-          # Keep 5 warm IPs per node instead of pre-allocating full ENI worth.
-          # Matches Krypton configuration (vpc-cni-warm-ip.tf).
+          # Keep 5 warm IPs per node. Prefix delegation disabled for /24 subnets:
+          # /28 prefix allocation fails with InsufficientCidrBlocks on fragmented
+          # /24s (e.g. forge-customer-ai). Re-enable when migrated to /20 subnets.
+          # TKT-151: prefix delegation + fragmented /24 blocks container startup.
           WARM_IP_TARGET           = "5"
-          # Prefix delegation: each ENI slot gets a /28 prefix (16 IPs) instead of 1.
-          # Combined with /20 subnets, supports 500+ nodes with high pod density.
-          ENABLE_PREFIX_DELEGATION = "true"
-          WARM_PREFIX_TARGET       = "1"
+          WARM_ENI_TARGET          = "2"
+          ENABLE_PREFIX_DELEGATION = "false"
         }
       })
     }
@@ -713,6 +713,12 @@ resource "helm_release" "forge_api" {
   set {
     name  = "forgeImageTag"
     value = try(split(":", var.spark_image)[1], "latest")
+  }
+  # History, metrics, and system tables bucket (TKT-153: required for /v1/jobs/history).
+  # Must be set to enable job history tracking and DRR regression tests.
+  set {
+    name  = "env.FORGE_HISTORY_BUCKET"
+    value = var.forge_data_bucket
   }
 }
 

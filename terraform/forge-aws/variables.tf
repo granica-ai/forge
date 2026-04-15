@@ -157,3 +157,9 @@ variable "tracing_enabled" {
   type        = bool
   default     = true
 }
+
+variable "forge_data_bucket" {
+  description = "S3 URI for Forge system data (history, metrics, system tables). Sets FORGE_HISTORY_BUCKET in forge-api."
+  type        = string
+  default     = ""
+}

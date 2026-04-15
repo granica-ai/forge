@@ -1,8 +1,3 @@
-# DEPRECATED: This Helm chart is maintained for backwards compatibility only.
-# The canonical deployment path is the ForgeCluster operator (operator/charts/forge-api/).
-# New features and configuration options are added to the operator chart first.
-# See docs/queryui-demo-runbook.md for the recommended deployment flow.
-
 replicaCount: 1
 
 # clusterName is surfaced via GET /v1/system/info so FDEs can identify the deployment.
@@ -123,8 +118,6 @@ tolerations:
     effect: NoSchedule
 
 workspace:
-  # Which runtime forge-api should present as the active /console/sql surface.
-  # Keep this aligned with the enabled runtime URLs below.
   activeBackend: spark_connect
 
   sparkConnect:
@@ -144,7 +137,6 @@ workspace:
     enabled: false
     serviceName: jupyter
     url: ""
-    # REQUIRED: set via values override or use tokenSecretRef pattern in operator chart.
     token: ""
     image:
       repository: quay.io/jupyter/pyspark-notebook
