@@ -2,7 +2,7 @@
 
 Versioned Terraform, operator install YAML, and reference Kubernetes/Helm layouts aligned with Granica releases.
 
-**Tags** (e.g. `v0.8.2-rfc106-v4`) are the supported contract. `main` is updated with each release.
+**Tags** (e.g. `v0.8.2-alpha`) are the supported contract. `main` is updated with each release.
 
 ## Quick start
 
@@ -13,7 +13,7 @@ Replace `FORGE_VERSION` with the tag you are deploying (same value in both secti
 Uses the release **`granica-release-images.tfvars`** only (default **`customer`** mode):
 
 ```bash
-export FORGE_VERSION=v0.8.2-rfc106-v4
+export FORGE_VERSION=v0.8.2-alpha
 git clone --depth 1 --branch "${FORGE_VERSION}" https://github.com/granica-ai/forge.git
 cd forge/terraform/forge-aws
 terraform init
@@ -36,7 +36,7 @@ aws eks update-kubeconfig --region us-west-2 --name forge
 ### 2. Forge operator
 
 ```bash
-export FORGE_VERSION=v0.8.2-rfc106-v4
+export FORGE_VERSION=v0.8.2-alpha
 kubectl apply -f "https://raw.githubusercontent.com/granica-ai/forge/${FORGE_VERSION}/operator/install.yaml"
 ```
 
@@ -73,7 +73,7 @@ terraform apply tfplan
 To fetch only the image file without cloning the repo:
 
 ```bash
-export FORGE_VERSION=v0.8.2-rfc106-v4   # your release tag
+export FORGE_VERSION=v0.8.2-alpha   # your release tag
 curl -fsSL -o granica-release-images.tfvars \
   "https://raw.githubusercontent.com/granica-ai/forge/${FORGE_VERSION}/terraform/forge-aws/granica-release-images.tfvars"
 ```
@@ -121,7 +121,7 @@ terraform apply -var-file=granica-release-images.tfvars -var-file=forge-local.tf
 Install the controller and bundled CRDs (image tag matches the git tag):
 
 ```bash
-export FORGE_VERSION=v0.8.2-rfc106-v4   # replace with your tag
+export FORGE_VERSION=v0.8.2-alpha   # replace with your tag
 kubectl apply -f "https://raw.githubusercontent.com/granica-ai/forge/${FORGE_VERSION}/operator/install.yaml"
 ```
 

@@ -389,12 +389,14 @@ az identity federated-credential create \
 
 ## Step 8: Grant Storage Access
 
-Grant both managed identities read/write access to the Forge storage account. This uses the `Storage Blob Data Contributor` role, which provides data plane access (read, write, delete blobs) without management plane permissions.
+Grant both managed identities data plane access to the Forge storage account, plus an additional narrow grant on the `system` container for the `spark-driver` identity:
 
-This grant is at the storage account level, meaning both identities can access all containers in the account. If you need finer-grained access control, you can scope the role assignment to individual containers instead.
+- **`Storage Blob Data Contributor` at the storage account scope** (both identities) — read/write access to data in all containers. Sufficient for normal Forge operations.
+- **`Storage Blob Data Owner` scoped only to the `system` container** (spark-driver only) — required so Spark can write its event logs to Forge's internal storage. Scoping it to the `system` container keeps the elevated permission off your data containers.
 
 ```bash
 STORAGE_ID=$(az storage account show --name $STORAGE_ACCOUNT --query id -o tsv)
+SYSTEM_CONTAINER_SCOPE="${STORAGE_ID}/blobServices/default/containers/system"
 
 az role assignment create \
   --assignee-object-id "$FORGE_API_PRINCIPAL_ID" \
@@ -407,6 +409,12 @@ az role assignment create \
   --assignee-principal-type ServicePrincipal \
   --role "Storage Blob Data Contributor" \
   --scope "$STORAGE_ID"
+
+az role assignment create \
+  --assignee-object-id "$SPARK_DRIVER_PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Storage Blob Data Owner" \
+  --scope "$SYSTEM_CONTAINER_SCOPE"
 ```
 
 > **Note:** Azure RBAC role assignments can take 2-5 minutes to propagate. If you see `access_denied` errors in later steps, wait a few minutes and retry.
@@ -426,7 +434,7 @@ These are not bundled in the Forge chart to avoid version conflicts with existin
 ### Clone the Forge repo
 
 ```bash
-git clone --depth 1 --branch v0.8.2-rfc106-v4 https://github.com/granica-ai/forge.git ~/forge
+git clone --depth 1 --branch v0.8.2-alpha https://github.com/granica-ai/forge.git ~/forge
 ```
 
 ### Install Spark Operator
@@ -490,15 +498,15 @@ helm install forge-api ~/forge/helm/forge-api \
   --set cloud=azure \
   --set "nodeSelector.kubernetes\.io/arch=amd64" \
   --set image.repository=${ACR_NAME}.azurecr.io/forge-api \
-  --set image.tag=v0.8.2-rfc106-v4 \
+  --set image.tag=v0.8.2-alpha \
   --set "imagePullSecrets[0].name=forge-pull-secret" \
   --set env.FORGE_CLOUD_PROVIDER=azure \
   --set env.AZURE_STORAGE_ACCOUNT=$STORAGE_ACCOUNT \
   --set env.AZURE_SPARK_CLIENT_ID=$SPARK_DRIVER_CLIENT_ID \
-  --set env.FORGE_SPARK_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.8.2-rfc106-v4-spark \
-  --set env.FORGE_CRUNCH_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.8.2-rfc106-v4 \
+  --set env.FORGE_SPARK_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.8.2-alpha-spark \
+  --set env.FORGE_CRUNCH_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.8.2-alpha \
   --set env.FORGE_DEFAULT_APP_RESOURCE="local:///opt/spark/jars/crunch-spark-assembly-0.7.0.jar" \
-  --set env.FORGE_RECIPE_TABLE_URI="abfss://system@${STORAGE_ACCOUNT}.dfs.core.windows.net/forge-system/recipes" \
+  --set env.FORGE_SYSTEM_BUCKET=system \
   --set env.FORGE_EXECUTOR_NODE_SELECTOR='\{"nodeUse":"granica-on-spot"\}' \
   --set env.FORGE_EXECUTOR_TOLERATIONS='\[\{"key":"kubernetes.azure.com/scalesetpriority"\,"operator":"Equal"\,"value":"spot"\,"effect":"NoSchedule"\}\]' \
   --set "serviceAccount.annotations.azure\.workload\.identity/client-id=$FORGE_API_CLIENT_ID" \
