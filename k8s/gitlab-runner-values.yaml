@@ -50,5 +50,6 @@ serviceAccount:
 nodeSelector:
   forge.granica.ai/pool: system
 
-# Concurrent jobs — match ci-builder pool limits (2 × 8 vCPU = 16 vCPU max)
-concurrent: 4
+# Concurrent jobs — sized to match 5× m8g.large system pool (10 vCPU available
+# after control-plane overhead). See system node group in forge-aws/main.tf.
+concurrent: 6

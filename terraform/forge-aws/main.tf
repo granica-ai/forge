@@ -152,9 +152,9 @@ module "eks" {
         instance_types = var.arch == "arm64" ? ["m8g.large"] : ["m7i.large", "m6i.large"]
         ami_type       = var.arch == "arm64" ? "AL2023_ARM_64_STANDARD" : "AL2023_x86_64_STANDARD"
         capacity_type  = "ON_DEMAND"
-        min_size       = 1
-        max_size       = 1
-        desired_size   = 1
+        min_size       = 2
+        max_size       = 6
+        desired_size   = 5
         block_device_mappings = {
           xvda = {
             device_name = "/dev/xvda"
