@@ -46,6 +46,7 @@ Before you begin, gather the following values. These variables are referenced th
   openssl rand -hex 32
   ```
 - **`ACR_NAME`**, **`ACR_USERNAME`**, **`ACR_PASSWORD`** — Credentials for pulling Forge container images from the Azure Container Registry. These are provided by Granica during onboarding. The username and password are a read-only pull token scoped to the Forge image repositories.
+- **`ARCH`** — CPU architecture of your AKS node VMs. Set to `amd64` for x86/Intel VMs (e.g. Standard_D4as_v7, Standard_D8as_v7) or `arm64` for ARM VMs (e.g. Standard_D4pds_v6).
 
 ### Set all variables
 
@@ -57,6 +58,7 @@ API_KEY="your-api-key"
 ACR_NAME="granicaaz"
 ACR_USERNAME="GRANICA_PROVIDED_USERNAME"
 ACR_PASSWORD="GRANICA_PROVIDED_PASSWORD"
+ARCH="amd64"  # amd64 for x86 VMs, arm64 for ARM VMs
 
 RESOURCE_GROUP="forge-${CLUSTER_NAME}-rg"
 STORAGE_ACCOUNT="forge${CLUSTER_NAME//[-]/}${REGION//[-]/}"
@@ -153,7 +155,7 @@ Recommended VM sizes:
 | Standard_D16as_v7 | 16 | 64 GiB | Large-scale workloads |
 | Standard_F8s_v2 | 8 | 16 GiB | Compute-optimized alternative |
 
-You can use different VM sizes for the on-demand and Spot pools. For example, use `Standard_D4as_v7` for on-demand (platform services + drivers) and `Standard_D8as_v7` for Spot (executors) to optimize cost and throughput.
+We recommend `Standard_D4as_v7` for on-demand (platform services + drivers) and `Standard_D8as_v7` for Spot (executors). D8as_v7 fits 2 executors per node, reducing the number of nodes needed for large tables.
 
 ### Required settings
 
@@ -220,7 +222,7 @@ az aks nodepool add \
   --resource-group $RESOURCE_GROUP \
   --cluster-name $CLUSTER_NAME \
   --name spot \
-  --node-vm-size Standard_D4as_v7 \
+  --node-vm-size Standard_D8as_v7 \
   --node-count 0 \
   --min-count 0 \
   --max-count 100 \
@@ -496,16 +498,16 @@ The service account annotations configure Workload Identity (linking the K8s ser
 helm install forge-api ~/forge/helm/forge-api \
   --namespace forge \
   --set cloud=azure \
-  --set "nodeSelector.kubernetes\.io/arch=amd64" \
+  --set "nodeSelector.nodeUse=granica-on-demand" \
+  --set "nodeSelector.kubernetes\.io/arch=${ARCH}" \
   --set image.repository=${ACR_NAME}.azurecr.io/forge-api \
-  --set image.tag=v0.8.3-alpha \
+  --set image.tag=v0.8.3-alpha-${ARCH} \
   --set "imagePullSecrets[0].name=forge-pull-secret" \
   --set env.FORGE_CLOUD_PROVIDER=azure \
   --set env.AZURE_STORAGE_ACCOUNT=$STORAGE_ACCOUNT \
   --set env.AZURE_SPARK_CLIENT_ID=$SPARK_DRIVER_CLIENT_ID \
-  --set env.FORGE_SPARK_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.8.3-alpha-spark \
-  --set env.FORGE_CRUNCH_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.8.3-alpha \
-  --set env.FORGE_DEFAULT_APP_RESOURCE="local:///opt/spark/jars/crunch-spark-assembly-0.7.0.jar" \
+  --set env.FORGE_SPARK_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.8.3-alpha-${ARCH}-spark \
+  --set env.FORGE_CRUNCH_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.8.3-alpha-${ARCH} \
   --set env.FORGE_SYSTEM_BUCKET=system \
   --set env.FORGE_EXECUTOR_NODE_SELECTOR='\{"nodeUse":"granica-on-spot"\}' \
   --set env.FORGE_EXECUTOR_TOLERATIONS='\[\{"key":"kubernetes.azure.com/scalesetpriority"\,"operator":"Equal"\,"value":"spot"\,"effect":"NoSchedule"\}\]' \

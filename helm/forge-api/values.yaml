@@ -1,5 +1,10 @@
 replicaCount: 1
 
+# cloud: target cloud platform. Set to "azure" for AKS deployments.
+# When "azure", the chart adds azure.workload.identity/use label to the forge-api pod
+# so the AKS Workload Identity webhook injects Azure credentials.
+cloud: ""
+
 # clusterName is surfaced via GET /v1/system/info so FDEs can identify the deployment.
 # Set this to the EKS cluster name when deploying (e.g. customer-ai-forge, project-n-bigabid-c36b).
 clusterName: ""

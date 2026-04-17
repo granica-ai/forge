@@ -15,6 +15,9 @@ spec:
     metadata:
       labels:
         app: forge-api
+        {{- if eq .Values.cloud "azure" }}
+        azure.workload.identity/use: "true"
+        {{- end }}
     spec:
       serviceAccountName: forge-api
       {{- with .Values.imagePullSecrets }}
