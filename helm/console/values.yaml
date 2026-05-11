@@ -1,0 +1,87 @@
+# Default values for granica-console on Forge
+
+replicaCount: 2
+
+image:
+  # Use Superman-style image tagging: gcr.io/..., or ECR equivalent
+  # Update after building/pushing console image for Forge
+  repository: "us.gcr.io/stone-bounty-249217/granica-console"
+  tag: "latest"  # Override with git tag or short commit in CI
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: "console"
+fullnameOverride: "console"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+  annotations: {}
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: "console.forge.internal"
+      paths:
+        - path: "/"
+          pathType: Prefix
+  tls:
+    - secretName: console-tls
+      hosts:
+        - "console.forge.internal"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"
+  prometheus.io/path: "/_next/metrics"
+
+# Environment variables for Next.js console
+env:
+  NODE_ENV: "production"
+  # Forge API endpoint — console reverse-proxies to this via /granica-api/*
+  GRANICA_API_URL: "http://forge-api.default.svc.cluster.local:8080"
+  # Cookie security — set COOKIE_SECURE=true in production with HTTPS
+  COOKIE_SECURE: "false"  # Override to "true" with HTTPS termination at Ingress
+  # SAML IdP certificate fingerprint (optional, required if using SAML SSO)
+  # SAML_IDP_CERT_FINGERPRINT: ""
+
+# Secrets — injected from K8s Secret (must be created separately)
+secrets:
+  # JWT secret for signing access/refresh tokens — must match across replicas
+  # Create via: kubectl create secret generic console-secrets --from-literal=JWT_SECRET=...
+  jwtSecretRef: "console-secrets"
+  jwtSecretKey: "JWT_SECRET"
+  # Database connection — if using shared Postgres with Forge API
+  # databaseUrlRef: "console-db"
+  # databaseUrlKey: "DATABASE_URL"
+
+# Readiness/liveness probes
+probes:
+  readiness:
+    path: "/api/health"
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+  liveness:
+    path: "/api/health"
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5

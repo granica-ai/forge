@@ -10,7 +10,7 @@
 # KNOWN ISSUE: crunch-engine merge produces ~1000-row files by default.
 # This causes negative DRR on datasets >100 MB due to per-file Parquet overhead.
 # Fix required: target file size config in crunch-engine compaction module.
-# Tracked in ai-factory KG: crunch_merge_fragmentation_bug
+# See: gp1-pm/products/crunch/blockers.md (fragmentation)
 
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication

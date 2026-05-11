@@ -46,6 +46,10 @@ kind: ServiceAccount
 metadata:
   name: spark-driver
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- if eq .Values.cloud "azure" }}
+    azure.workload.identity/use: "true"
+    {{- end }}
   annotations:
     {{- toYaml .Values.sparkDriver.serviceAccount.annotations | nindent 4 }}
 {{- with .Values.imagePullSecrets }}

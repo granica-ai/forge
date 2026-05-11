@@ -1,12 +1,12 @@
 replicaCount: 1
 
-# cloud: target cloud platform. Set to "azure" for AKS deployments.
+# cloud: target cloud platform. "aws" (default) or "azure".
 # When "azure", the chart adds azure.workload.identity/use label to the forge-api pod
 # so the AKS Workload Identity webhook injects Azure credentials.
 cloud: ""
 
 # clusterName is surfaced via GET /v1/system/info so FDEs can identify the deployment.
-# Set this to the EKS cluster name when deploying (e.g. customer-ai-forge, project-n-bigabid-c36b).
+# Set this to the cluster name when deploying (EKS or AKS cluster name).
 clusterName: ""
 
 # dataBucket: S3/GCS bucket for Forge system data (history, metrics, system tables).
@@ -86,15 +86,17 @@ resources:
     memory: 256Mi
 
 serviceAccount:
-  # Set to the IRSA role ARN for this cluster (output from Terraform).
-  annotations:
-    eks.amazonaws.com/role-arn: ""
+  # AWS: set eks.amazonaws.com/role-arn to the IRSA role ARN.
+  # Azure: set azure.workload.identity/client-id to the Managed Identity client ID.
+  annotations: {}
 
-# Spark driver IRSA role for the spark-driver SA.
+# Spark driver identity for the spark-driver SA.
 sparkDriver:
   serviceAccount:
-    annotations:
-      eks.amazonaws.com/role-arn: ""
+    annotations: {}
+
+# imagePullSecrets for pulling from private registries (e.g. ACR with token auth).
+imagePullSecrets: []
 
 # TKT-121: Prometheus ServiceMonitor for forge-api /metrics scraping.
 # Requires kube-prometheus-stack (or any Prometheus Operator) to be installed.
@@ -113,14 +115,16 @@ grafanaDashboard:
   enabled: true
   namespace: monitoring
 
-nodeSelector:
-  nodeUse: main
+# Node selection — set via Terraform module or helm install --set.
+# AWS: nodeUse=granica-on-demand, Azure: nodeUse=granica-on-demand.
+# No default so the chart is cloud-neutral.
+nodeSelector: {}
 
-tolerations:
-  - key: kubernetes.io/arch
-    operator: Equal
-    value: arm64
-    effect: NoSchedule
+# tolerations for the forge-api pod itself. Usually empty — forge-api runs on
+# the (untainted) system / granica-on-demand pool on both AWS and Azure.
+# Tolerations for Spark executor pods are passed through FORGE_EXECUTOR_TOLERATIONS
+# env var, not here.
+tolerations: []
 
 workspace:
   activeBackend: spark_connect

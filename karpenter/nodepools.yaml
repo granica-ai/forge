@@ -1,10 +1,12 @@
 ---
 # Karpenter NodePool manifests — applied by Terraform when enable_karpenter=true (default).
 #
-# 2 pools: granica-on-demand (drivers, system workloads) + granica-on-spot (executors, batch).
+# 3 pools: ci-builder (GitLab CI), granica-on-demand (drivers, system workloads),
+# and granica-on-spot (executors, batch).
 # The system MNG stays as an EKS managed node group (Karpenter can't manage its own infra).
 #
 # Workload scheduling via nodeSelector:
+#   forge.granica.ai/pool: ci-builder → GitLab Runner build pods
 #   nodeUse: granica-on-demand  → on-demand pool (drivers, coordinators)
 #   nodeUse: granica-on-spot    → spot pool (executors, batch)
 #
@@ -12,6 +14,46 @@
 #   ${CLUSTER_NAME}, ${KARPENTER_NODE_INSTANCE_PROFILE}, ${ARCH}
 #
 # API: karpenter.sh/v1 (requires Karpenter >= 1.0)
+
+---
+# Dedicated CI builder pool — GitLab Runner job pods.
+# Keeps heavy Rust/Go/SBT/BuildKit workloads off the system node group.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: ci-builder
+spec:
+  weight: 75
+  template:
+    metadata:
+      labels:
+        forge.granica.ai/pool: ci-builder
+        nodeUse: ci-builder
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["${ARCH}"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["m8g.2xlarge", "m8g.4xlarge"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: forge-default
+      expireAfter: 720h
+      taints:
+        - key: forge.granica.ai/ci-builder
+          effect: NoSchedule
+  limits:
+    cpu: "80"
+    memory: 320Gi
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 300s
 
 ---
 # On-demand pool — drivers, coordinators, anything that must not be interrupted.

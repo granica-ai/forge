@@ -1,0 +1,6 @@
+apiVersion: v2
+name: granica-console
+description: Granica console UI — Next.js app with reverse proxy to Forge API
+type: application
+version: 0.9.0
+appVersion: "0.9.0"

@@ -3,7 +3,7 @@ data "kubernetes_service" "forge_api" {
   depends_on = [helm_release.forge_api]
   metadata {
     name      = "forge-api"
-    namespace = "forge"
+    namespace = var.forge_namespace
   }
 }
 
@@ -45,4 +45,10 @@ output "storage_account_name" {
 
 output "resource_group_name" {
   value = azurerm_resource_group.forge.name
+}
+
+output "api_key" {
+  description = "forge-api authentication key. Either the value passed via var.api_key or a generated one."
+  value       = local.api_key
+  sensitive   = true
 }

@@ -104,15 +104,27 @@ variable "arch" {
 }
 
 variable "enable_karpenter" {
-  description = "Install Karpenter and apply NodePool manifests for auto-scaling with granica-on-demand and granica-on-spot NodePools."
+  description = "Install Karpenter and apply NodePool manifests for auto-scaling with ci-builder, granica-on-demand, and granica-on-spot NodePools."
   type        = bool
   default     = true
 }
 
 variable "enable_yunikorn" {
-  description = "Install Apache YuniKorn batch scheduler. Not deployed on staging-ai-dev yet."
+  description = "Install Apache YuniKorn batch scheduler."
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "spark_operator_namespace" {
+  description = "Kubernetes namespace for the spark-operator Helm release."
+  type        = string
+  default     = "spark-operator"
+}
+
+variable "spark_operator_chart_version" {
+  description = "spark-operator Helm chart version."
+  type        = string
+  default     = "2.5.0"
 }
 
 variable "existing_irsa_role_arn" {
@@ -132,8 +144,8 @@ variable "existing_irsa_role_arn" {
     When empty (default): the module creates dedicated forge-api and spark-driver
     IAM roles as normal.
   EOT
-  type    = string
-  default = ""
+  type        = string
+  default     = ""
 }
 
 variable "enable_legacy_forge_api_release" {

@@ -177,7 +177,7 @@ module "eks" {
           "m8g.4xlarge", "m8g.8xlarge", "m7g.4xlarge", "m7g.8xlarge",
           "c8g.4xlarge", "c8g.8xlarge", "c7g.4xlarge", "c7g.8xlarge",
           "r8g.4xlarge", "r8g.8xlarge", "r7g.4xlarge", "r7g.8xlarge",
-        ] : [
+          ] : [
           "m8i.4xlarge", "m8i.8xlarge", "m7i.4xlarge", "m7i.8xlarge",
           "c7i.4xlarge", "c7i.8xlarge", "c6i.4xlarge", "c6i.8xlarge",
           "r7i.4xlarge", "r7i.8xlarge", "r6i.4xlarge", "r6i.8xlarge",
@@ -413,8 +413,8 @@ module "eks_blueprints_addons" {
         name             = "spark-operator"
         repository       = "https://kubeflow.github.io/spark-operator"
         chart            = "spark-operator"
-        version          = "2.4.0"
-        namespace        = "crunch" # deployed to crunch namespace on staging-ai-dev
+        version          = var.spark_operator_chart_version
+        namespace        = var.spark_operator_namespace
         create_namespace = true
         set = [
           { name = "webhook.enable", value = "true" },
@@ -557,7 +557,11 @@ resource "aws_eks_access_policy_association" "ci_runner_admin" {
 resource "null_resource" "karpenter_nodepools" {
   count      = var.enable_karpenter ? 1 : 0
   depends_on = [module.eks_blueprints_addons]
-  triggers   = { cluster_name = var.cluster_name }
+  triggers = {
+    cluster_name     = var.cluster_name
+    nodepools_sha256 = filesha256("${path.module}/../../karpenter/nodepools.yaml")
+    forgejob_crd_sha = filesha256("${path.module}/../../k8s/forgejob-crd.yaml")
+  }
   provisioner "local-exec" {
     command = <<-EOF
       set -e
