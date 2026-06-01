@@ -436,7 +436,7 @@ These are not bundled in the Forge chart to avoid version conflicts with existin
 ### Clone the Forge repo
 
 ```bash
-git clone --depth 1 --branch v0.9.2-rc1-commit-protocol-fix https://github.com/granica-ai/forge.git ~/forge
+git clone --depth 1 --branch v0.9.4-commit-fix https://github.com/granica-ai/forge.git ~/forge
 ```
 
 ### Install Spark Operator
@@ -501,13 +501,13 @@ helm install forge-api ~/forge/helm/forge-api \
   --set "nodeSelector.nodeUse=granica-on-demand" \
   --set "nodeSelector.kubernetes\.io/arch=${ARCH}" \
   --set image.repository=${ACR_NAME}.azurecr.io/forge-api \
-  --set image.tag=v0.9.2-rc1-commit-protocol-fix-${ARCH} \
+  --set image.tag=v0.9.4-commit-fix-${ARCH} \
   --set "imagePullSecrets[0].name=forge-pull-secret" \
   --set env.FORGE_CLOUD_PROVIDER=azure \
   --set env.AZURE_STORAGE_ACCOUNT=$STORAGE_ACCOUNT \
   --set env.AZURE_SPARK_CLIENT_ID=$SPARK_DRIVER_CLIENT_ID \
-  --set env.FORGE_SPARK_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.9.2-rc1-commit-protocol-fix-${ARCH}-spark \
-  --set env.FORGE_CRUNCH_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.9.2-rc1-commit-protocol-fix-${ARCH} \
+  --set env.FORGE_SPARK_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.9.4-commit-fix-${ARCH}-spark \
+  --set env.FORGE_CRUNCH_IMAGE=${ACR_NAME}.azurecr.io/crunch:v0.9.4-commit-fix-${ARCH} \
   --set env.FORGE_SYSTEM_BUCKET=system \
   --set env.FORGE_EXECUTOR_NODE_SELECTOR='\{"nodeUse":"granica-on-spot"\}' \
   --set env.FORGE_EXECUTOR_TOLERATIONS='\[\{"key":"kubernetes.azure.com/scalesetpriority"\,"operator":"Equal"\,"value":"spot"\,"effect":"NoSchedule"\}\]' \
