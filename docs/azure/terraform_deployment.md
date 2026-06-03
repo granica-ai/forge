@@ -63,7 +63,7 @@ The principal must have Contributor + User Access Administrator on the target su
 Clone the public Forge repository and change into the module directory:
 
 ```bash
-git clone --depth 1 --branch v0.9.4-delta-optimize-9e401b33 https://github.com/granica-ai/forge.git
+git clone --depth 1 --branch v0.9.4-delta-optimize-b56cd7b5 https://github.com/granica-ai/forge.git
 cd forge/terraform/forge-azure
 ```
 
@@ -82,7 +82,7 @@ image_pull_secret_password = "GRANICA_PROVIDED_PASSWORD"
 # cluster_name             = "forge"                # prefix for all resources
 # region                   = "eastus2"
 # subscription_id          = "..."                  # falls back to current az context
-# release_version          = "v0.9.4-delta-optimize-9e401b33"      # Forge release (templated at publish)
+# release_version          = "v0.9.4-delta-optimize-b56cd7b5"      # Forge release (templated at publish)
 # image_tag                = ""                     # derived from release_version + arch
 # image_repository         = "granicaaz.azurecr.io"
 # image_pull_secret_name   = "forge-pull-secret"
