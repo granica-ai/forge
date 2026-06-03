@@ -102,12 +102,12 @@ variable "image_repository" {
 
 variable "release_version" {
   description = <<-EOT
-    Granica Forge release tag (e.g. "v0.8.3-alpha"). Templated to v1.0.0-rc1
+    Granica Forge release tag (e.g. "v0.8.3-alpha"). Templated to v0.9.4-delta-optimize-1d8cf787
     at publish time. The module derives image_tag as "<release_version>-<arch>"
     when image_tag is left blank.
   EOT
   type        = string
-  default     = "v1.0.0-rc1"
+  default     = "v0.9.4-delta-optimize-1d8cf787"
 }
 
 variable "image_tag" {
